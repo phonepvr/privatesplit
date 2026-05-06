@@ -24,16 +24,24 @@ The brief calls it **PrivShare** as a working name. The repo is `privatesplit`. 
 
 ## 1. Problem, restated in my words
 
-We're building a PWA that does the Splitwise core loop — groups, members, expenses, splits, balances, simplified debts, settle-up — under a hard rule: no expense data ever touches a server. Ours or anyone else's. The app installs once from GitHub Pages and runs from local storage forever after. Two paired devices on the same WiFi sync over a direct WebRTC DataChannel. Pairing exchanges the WebRTC SDP offer/answer as either an animated QR code or a copy-paste "join code" — no signaling server. Yjs handles convergence; integer-paise math handles money correctness; a strict service worker enforces the "no internet" promise.
+We're building a PWA that does the Splitwise core loop — groups, members, expenses, splits, balances, settle-up — under a hard rule: no expense data ever touches a server. Ours or anyone else's. The app installs once from GitHub Pages and runs from local storage forever after. Two paired devices on the same WiFi sync over a direct WebRTC DataChannel. Pairing exchanges the WebRTC SDP offer/answer as an animated QR code — no signaling server. Yjs handles convergence; integer-paise math handles money correctness; a strict service worker enforces the "no internet" promise.
 
 The genuinely hard parts:
 
-1. Signaling-server-less WebRTC pairing that a non-technical user can complete in under a minute on the first try.
-2. Deterministic money math with explicit remainder distribution and a debt-simplifier that's tested into the ground.
+1. Signaling-server-less WebRTC pairing that a partner can complete in under a minute, once.
+2. Deterministic money math with explicit remainder distribution.
 3. A service worker that fails loudly on any cross-origin fetch (and a test that proves it).
 4. Honest, plain-language UX around what "auto-reconnect" can and cannot do without any discovery server.
 
 Everything else is conventional React/TypeScript app work.
+
+### 1.1 Audience and scale assumptions
+
+- **Two-person closed group** (couple/household), **all Android phones**. This is the v1 target.
+- Multiple groups still supported as expense categories (Goa Trip, Apartment, Family); each group's typical N is 2.
+- The data model stays N-flexible (groups can technically have more members) but the UI is optimized for N=2.
+- This is **not a public product**. We don't optimize for stranger pairing, abuse prevention, or many-new-people scale-out.
+- These assumptions shape: M2 (no simplified-debts UI), M4 (Android-only QR primary), M5 (deferred to v2), M7 (README as operating manual), §8 (drop iOS Safari risks), §10 (browser matrix narrows to Android Chrome).
 
 ---
 
@@ -43,7 +51,7 @@ Numbered so you can answer inline.
 
 1. **GitHub Pages base path.** Repo is `phonepvr/privatesplit`. Default deployment URL would be `https://phonepvr.github.io/privatesplit/`. Vite's `base` and the service worker scope must match. Do you have a custom domain (e.g., a CNAME) or will we ship to that subpath? **Default if you don't reply: `/privatesplit/`.**
 
-2. **iOS Safari priority.** iOS PWAs in standalone mode have known limits — `getUserMedia` in standalone mode used to be blocked, mDNS candidates behave differently, and some users disable camera in installed PWAs. Is iOS Safari a first-class target, a "must work but degraded is OK" target, or out of scope for v1? **Default: first-class, but the share-code (paste) path is the supported fallback when the camera is unavailable.**
+2. ~~**iOS Safari priority.**~~ **Resolved (you confirmed):** out of scope for v1 — Android only. This drops the iOS-fallback framing of share-code, removes risk §8.1, and shapes M4/M5 below.
 
 3. **Member ↔ device claim model.** A "member" is a name (a person). A "device" is a physical device with an Ed25519 keypair. Splitwise lets you add a person by name before they install the app; later, when they install, they "claim" their member entry. I want the same: anyone can be added by name, and a paired device claims an existing member entry during pairing. **Confirm or push back.**
 
@@ -139,7 +147,7 @@ This is the spine of the app. I'm putting it here so the milestones make sense; 
 │   crdt/   Yjs doc factory, change subscription              │
 │   storage/ Dexie schema, hydration from Yjs                 │
 │   sync/   peer manager, transport, signaling encoder        │
-│   pairing/ QR codec, share-code codec, key handshake        │
+│   pairing/ QR codec, key handshake (share-code → v2)        │
 │   crypto/ device keys, group keys, fingerprints, sigs       │
 ├─────────────────────────────────────────────────────────────┤
 │ Browser primitives                                          │
@@ -206,11 +214,12 @@ Last-write-wins per field is implemented by writing to the Y.Map fields directly
 - Pairing flow (M4/M5):
   1. **A** chooses "Pair new device" + selects which group to share.
   2. **A** creates `RTCPeerConnection({iceServers: []})`, creates a DataChannel, sets local description, **waits for ICE gathering complete** (or 3s timeout).
-  3. **A** packages the offer: `{v:1, kind:'offer', sdp, deviceFp, displayName, groupInvite:{groupId, groupName, currency, groupKey, memberIdToClaim?}}`. Compresses with `pako` + base64. Renders as animated QR (chunked) and as a multi-line share-code.
+  3. **A** packages the offer: `{v:1, kind:'offer', sdp, deviceFp, displayName, groupInvite:{groupId, groupName, currency, groupKey, memberIdToClaim?}}`. Compresses with `pako` + base64. Renders as animated QR (chunked).
   4. **B** scans/pastes, decodes, creates its own peer connection, sets remote, creates answer, gathers ICE, packages the answer (with B's deviceFp + displayName, and the member-id B chose to claim), shows QR/code.
   5. **A** scans/pastes the answer. DataChannel opens. They exchange Yjs state vectors and reconcile.
   6. Both write each other to the `peers` table (trusted from now on).
 - Group-key handling: in v1 we don't separately encrypt at rest. The "groupKey" in the invite is reserved for v2's encryption-at-rest; in v1 it's a 256-bit random ID used as the Yjs doc identifier scoping (so two unrelated groups don't collide if names match), and as an authorization token so peers can't accidentally write to the wrong group.
+- **At N=2 the peer manager is single-peer in practice.** The transport is 1:1, no mesh; we keep the abstraction in case a group ever grows beyond two members.
 - Auto-reconnect (M6) is honest about its limits — see §8 risk #6.
 
 ### 4.6 Service worker
@@ -253,10 +262,10 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 **Scope**
 - Onboarding screen (display name + the one-screen privacy explainer).
 - Bottom-nav shell with Groups, Activity, Add (FAB), Profile.
-- Create / list / archive / delete groups.
-- Add / edit / remove members (name + color avatar).
+- Create / list / archive / delete groups. **First-group creation prompts "Who do you split with?" and pre-fills Member 1 = you, Member 2 = partner.**
+- Add / edit / remove members (name + color avatar). UI is optimized for N=2 but the underlying model does not hard-cap.
 - Add / edit / delete expenses with **equal split** only.
-- Group detail screen: list of expenses, per-member balance summary.
+- Group detail screen: list of expenses, **single net-balance line** ("You owe Priya ₹420" / "Priya owes you ₹420" / "All settled").
 - Yjs + y-indexeddb persistence wired in.
 - Dexie cache with hydration on app load.
 - Mobile-first layout tested at 380px.
@@ -276,13 +285,13 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 - [ ] No `console.error` during normal use.
 - [ ] Unit tests for the Dexie hydration path (Yjs → Dexie → UI projection).
 
-### M2 — Money math, unequal splits, settlements, simplified debts, CSV
+### M2 — Money math, unequal splits, settlements, CSV
 
 **Scope**
 - Unequal-split editor (per-participant exact amount; live-validates that they sum to the total).
 - Settlement entry (member A pays member B amount X on date Y).
-- Per-group balance view with toggle: "Show simplified debts" / "Show raw balances."
-- Simplified debt computation per the algorithm in the brief, in integer minor units.
+- Per-group balance view stays as the M1 single net-balance line for N=2. (For N≥3, the UI falls back to a per-member balance grid — implementation included for correctness, not for v1's primary path.)
+- **Simplified-debt algorithm** per the brief, integer minor units, implemented in `core/money/` and fully tested. **Not surfaced in v1 UI** — at N=2 it produces identical output to raw balance, so a toggle would be visual no-op. The algorithm is ready to expose the moment a group exceeds 2 active members.
 - CSV export per group (one row per expense + one row per settlement; UTF-8; Excel-friendly).
 - ≥ 50 unit tests covering money math:
   - Equal splits with N=2, 3, 4, 5, 7 and remainders that don't divide evenly.
@@ -300,10 +309,12 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 **Acceptance criteria**
 - [ ] You can construct any expense scenario you've ever had in real life and the balances are right.
 - [ ] CSV opens in Excel, Numbers, and Google Sheets without manual fixing.
-- [ ] Toggling simplified debts on/off changes the displayed transactions but not the totals.
-- [ ] All 50+ tests pass.
+- [ ] Net balance line for a 2-person group always reduces to one of: "you owe X", "X owes you", "all settled."
+- [ ] All 50+ tests pass — including simplified-debt tests for N=3, 4, 5 even though that UI isn't shipped, so we know the algorithm is correct when we need it.
 
 ### M3 — File export / import (`.privshare`)
+
+> With M5 deferred to v2, `.privshare` is the **v1 mechanism for moving a group to a new device** when LAN-pairing isn't possible (e.g., new phone purchase, partner is in another city). Send the file via any messenger or email; import on the receiving device.
 
 **Scope**
 - Export a group as `.privshare`: a single file containing
@@ -323,8 +334,10 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 
 ### M4 — WebRTC pairing via QR code
 
+> Framed in v1 as a one-time **"set up your partner's phone"** event. QR is the unambiguous primary path on Android Chrome PWA. Share-code (M5) is deferred to v2.
+
 **Scope**
-- Pairing screen with two tabs: QR / Share code. M4 implements the QR tab.
+- Pairing screen — single QR tab in v1.
 - Animated multi-frame QR for SDP (chunking + reassembly with sequence numbers; max ~5 frames at 4 fps).
 - Camera-based scanner using `@zxing/browser`.
 - The full handshake from §4.5.
@@ -342,26 +355,23 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 - [ ] If devices are on different WiFis: pairing fails with a clear "couldn't reach the other device — make sure you're on the same WiFi" message, not a stack trace.
 - [ ] No internet calls during pairing (verify in DevTools Network tab — only ws/RTCDataChannel; no HTTP).
 
-### M5 — Share-code pairing (paste-based)
+### M5 — Share-code pairing (paste-based) — **DEFERRED to v2**
 
-**Scope**
-- The "Share code" tab on the pairing screen.
-- Encodes the same offer/answer payload as a base64 string broken into ~76-char lines for easy copy-paste in any messenger.
-- "Copy code" / "Paste code" buttons, with clipboard API.
-- UI clearly labels: **"This code lets your friend's app talk to yours. It does not contain your expenses."**
-- Same handshake as M4; the QR step is replaced by a textarea.
-- (If Open Question #4 is "device-level pairing"): once two devices are paired, "Invite to <Group>" sends the group key over the existing channel without a fresh handshake; if the channel isn't currently open, a small "share code" is generated for invite-only.
+**Why deferred:** at N=2 in a household, both devices are typically reachable on the same WiFi (M4 covers this case). The remote-pairing case ("I'm at the airport with a new phone") is solvable today via M3's `.privshare` export/import sent over any messenger or email. Building the share-code path now adds work for a use case we don't currently have.
 
-**Acceptance criteria**
-- [ ] Pair two devices entirely via WhatsApp / email round-trip with copy-paste.
-- [ ] The codes are short enough that copy-paste in WhatsApp is painless (< 4KB; if SDP is larger, we chunk into 2 messages with a clear "1/2" / "2/2" prefix).
-- [ ] Same E2E test from M4 also passes via the share-code path (no QR camera).
+**What we save now:** the codec, the chunking logic for share codes, the "this code doesn't contain your data" UX framing, and an E2E test variant.
+
+**What v2 will do, if needed:** the same handshake as M4 encoded as multi-line base64 over messenger/email, reusing the existing peer trust list so re-pairing a known device skips most of the setup.
+
+**Trigger to revisit:** any of (a) you ask for it, (b) we add a third member who isn't on the home WiFi, (c) `.privshare` round-trips become friction in practice.
 
 ### M6 — Auto-reconnect (honest version)
 
+> Especially valuable for this use case: a couple opens both apps daily and expects sync to "just work" without re-pairing. Honest scope below — true zero-touch isn't possible from a browser.
+
 **Scope**
 - On app open, the app reads `peers` and shows known peers' status: "Last seen here 2 days ago."
-- For each known peer, a one-tap "Reconnect" button generates a fresh QR/share-code and waits for the other side to scan. The other device, if open, shows a "Reconnect with Alex?" toast that auto-launches its scanner. (Both devices need to be open; we cannot wake a closed PWA.)
+- For each known peer, a one-tap "Reconnect" button generates a fresh QR and waits for the other side to scan. The other device, if open, shows a "Reconnect with Alex?" toast that auto-launches its scanner. (Both devices need to be open; we cannot wake a closed PWA.)
 - We do **not** claim true zero-touch reconnect — this requires LAN discovery the browser doesn't expose. See §8 risk #6 for a detailed honest description and the few opt-in paths (BroadcastChannel for same-browser, a "tap to reconnect" tray entry).
 - Optional: a short-lived "rendezvous" mode where both devices, on the same WiFi, broadcast a hashed group-id over WebRTC mDNS-style hostnames — investigated; if not feasible, dropped from M6 and noted.
 
@@ -378,21 +388,21 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 - Edit history viewer per expense.
 - Trash bin viewer (deleted expenses) with restore + permanent-delete.
 - Settings: display name, device fingerprint, theme (light/system; dark mode is defer-to-v2 unless trivial), data management (export all, import, factory reset with double-confirmation), diagnostics tab (debug log).
-- README:
-  - "What this is" / "What this isn't"
+- README — **operating-manual style for you, not a stranger-onboarding doc**:
+  - What this is, why it exists
   - Privacy guarantees + how to verify (browser DevTools steps)
-  - Pairing tutorial with screenshots
-  - Build & deploy instructions
-  - Known limitations (iOS Safari quirks, auto-reconnect honesty)
+  - Pairing walkthrough with screenshots
+  - Build & deploy instructions (Codespaces-only; no local Node assumed)
+  - Known limitations (auto-reconnect honesty; LAN UDP-blocking caveats; iOS not yet tested)
 - GitHub Actions polish: lint + typecheck + unit + e2e + build + deploy, with a status badge in README.
 - Changelog file.
 - License (MIT? Apache 2.0? — flag in PR).
 
 **Acceptance criteria**
-- [ ] Lighthouse PWA + Performance + Accessibility ≥ 90 on mobile profile.
-- [ ] You can install the PWA on Android Chrome and on iOS Safari and use it offline.
+- [ ] Lighthouse PWA + Performance + Accessibility ≥ 90 on Android Chrome mobile profile.
+- [ ] You can install the PWA on Android Chrome and use it offline.
 - [ ] Factory reset wipes all data and re-runs onboarding.
-- [ ] README is good enough that a stranger could understand the privacy model without reading code.
+- [ ] README is good enough that you could rebuild the project in a year without re-figuring-it-out.
 
 ---
 
@@ -428,7 +438,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 │   │   ├── money/                  # split, simplifier, format, parse
 │   │   ├── storage/                # Dexie schemas, hydration, migrations
 │   │   ├── sync/                   # transport, peer manager, framing, sigs
-│   │   ├── pairing/                # QR encode/decode, share-code codec, handshake
+│   │   ├── pairing/                # QR encode/decode, handshake (share-code codec → v2)
 │   │   ├── pwa/                    # SW registration, update banner glue
 │   │   └── ids/                    # ulid, fingerprint helpers
 │   ├── features/
@@ -465,7 +475,6 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 │   │   ├── single-user-flow.spec.ts
 │   │   ├── balances.spec.ts
 │   │   ├── pairing-qr.spec.ts
-│   │   ├── pairing-share-code.spec.ts
 │   │   ├── sync-convergence.spec.ts
 │   │   ├── service-worker-blocks-internet.spec.ts
 │   │   └── pwa-install-and-offline.spec.ts
@@ -499,21 +508,19 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 | Money math | Vitest + fast-check | Splits, remainders, debt simplification (≥ 50 cases + property tests) |
 | CRDT plumbing | Vitest | Yjs doc creation, Dexie hydration, audit log integrity |
 | Crypto | Vitest | Keypair gen, signing, fingerprint, AES-GCM round-trip |
-| Pairing codec | Vitest | Offer/answer encode → chunk → reassemble; share-code round-trip |
+| Pairing codec | Vitest | Offer/answer encode → chunk → reassemble (QR frames) |
 | Service worker | Vitest + Playwright | Same-origin allow, cross-origin block (status 599) |
 | End-to-end UX | Playwright | Onboarding, single-user flows, two-context pairing, sync convergence |
 | Visual regression (lite) | Playwright screenshots | Key screens at 380px and 768px |
 
-CI matrix: Linux only on GitHub Actions (Chromium + Firefox + WebKit via Playwright). iOS Safari verified manually each milestone since CI can't simulate it faithfully.
+CI matrix: Linux only on GitHub Actions, Chromium via Playwright (matches the Android Chrome target). Firefox/WebKit deferred to v2 alongside iOS.
 
 ---
 
 ## 8. Risks & gotchas
 
-### 8.1 iOS Safari WebRTC quirks in PWA mode
-- iOS-installed PWAs (added to home screen, opened in standalone) have historically had `getUserMedia` quirks; iOS 16.4+ improved this but inconsistencies remain. Camera permission prompts may also be stickier in standalone mode.
-- mDNS-rewritten ICE candidates (`*.local`) can break when the OS firewall blocks mDNS responses; we should request only host candidates and accept that Safari may produce mDNS hostnames we can't resolve from a different OS.
-- **Mitigation:** prefer the share-code path on iOS as the documented primary; QR path is "use if available." Ship without iOS QR if scanning is blocked in standalone mode. Document in README.
+### 8.1 iOS Safari WebRTC quirks — **out of scope in v1**
+v1 targets Android Chrome only (per §1.1). iOS support is a v2 concern; if we adopt it, this section returns with mitigations (camera-in-standalone-PWA quirks, mDNS-rewritten ICE candidates, etc.).
 
 ### 8.2 SDP-too-large-for-one-QR
 - Without TURN, our SDP is ~1–3 KB. Single QR (version 40, binary) holds up to ~2.9 KB raw; with our prefix overhead and gzip we'll usually fit but not reliably.
@@ -580,62 +587,60 @@ These are the concrete walkthroughs you'll do in the browser to verify each mile
 
 ### M1 demo
 1. Onboard as "Alex." Read the privacy explainer.
-2. Create a group "Goa Trip." Add members: Alex, Priya, Rahul, Meera.
-3. Add 5 expenses (e.g., Alex paid 2400 for dinner, split equally; Priya paid 800 for coffee; etc.).
-4. Open Group Detail. Verify per-person balances match what you compute on paper.
-5. Force-quit the app (kill the tab). Reopen. Data is intact.
+2. Create a group "Goa Trip." Onboarding-from-zero pre-fills Alex; you add Priya as Member 2.
+3. Add 5 expenses (e.g., Alex paid 2400 for dinner, equal split; Priya paid 800 for coffee; etc.).
+4. Open Group Detail. Verify the single net-balance line matches what you compute on paper.
+5. Force-quit the app. Reopen. Data is intact.
 6. Toggle airplane mode on. Add another expense. App works normally.
 
 ### M2 demo
-1. In "Goa Trip," add an unequal expense: ₹1000, paid by Alex; Alex 200, Priya 300, Rahul 500.
-2. Add a settlement: Rahul pays Alex ₹200.
-3. Open balance view. Toggle "Simplified debts." Confirm transactions list collapses (e.g., 4 raw transactions → 2 simplified).
+1. In "Goa Trip," add an unequal expense: ₹1000, paid by Alex; Alex 400, Priya 600.
+2. Add a settlement: Priya pays Alex ₹200 cash.
+3. Open balance view. Confirm the single net-balance line reflects both events correctly.
 4. Export CSV. Open in Google Sheets. Numbers match.
-5. Run `npm run test`; see ≥ 50 money tests pass.
+5. Run `npm run test`; see ≥ 50 money tests pass — including N≥3 simplified-debt cases that aren't UI-exposed but are covered by tests.
 
 ### M3 demo
 1. Export "Goa Trip" as `.privshare`.
 2. Delete the group. Verify it's gone.
 3. Import the file. Group reappears identically.
-4. Open in a fresh browser profile (incognito + clear storage). Onboard as "Bob." Import the same file. Group appears, attributed to "Alex's device."
-5. On both, add divergent expenses while offline. Export both. Cross-import. Final state on both is identical.
+4. Simulate "new phone" migration: open in a fresh browser profile (incognito + clear storage). Onboard as "Priya." Import the file. Group appears, attributed to "Alex's device."
+5. On both profiles, add divergent expenses while offline. Export both. Cross-import. Final state on both is identical (CRDT convergence verified).
 
 ### M4 demo
-1. Phone (Alex) and laptop (Priya, in second browser profile), same WiFi.
-2. Phone: Pair → QR → Show. Laptop: Pair → QR → Scan.
-3. Camera reads animated QR; laptop generates answer; phone scans laptop's QR.
+1. Your Android phone (Alex) and partner's Android phone (Priya), same home WiFi.
+2. Phone A: Pair → Show QR. Phone B: Pair → Scan QR.
+3. Camera reads animated QR; phone B generates answer; phone A scans phone B's QR.
 4. "Paired with Priya" toast on both within 90 seconds.
-5. Phone adds an expense. Laptop sees it within 2 seconds.
+5. Phone A adds an expense. Phone B sees it within 2 seconds.
 6. Confirm DevTools Network tab shows zero HTTP traffic during the entire pairing.
 
 ### M5 demo
-1. Same two devices but pretend you're not in the same room (e.g., one's tethered to a different network).
-2. Pair via "Share code": copy code from phone, paste into WhatsApp to a fake contact (or to yourself), open on laptop, paste back. Reverse the answer.
-3. Pair succeeds.
-4. While paired, both edit the same expense. Both edits are preserved with edit history visible.
+Deferred to v2. See §5 M5 for the trigger conditions to revisit.
 
 ### M6 demo
-1. Re-open both devices the next day. Both auto-detect the previously-paired peer.
-2. Tap "Reconnect with Priya" on phone. Laptop shows "Reconnect with Alex?" toast. Tap accept.
+1. Re-open both phones the next day. Both auto-detect the previously-paired peer.
+2. Tap "Reconnect with Priya" on phone A. Phone B shows "Reconnect with Alex?" toast. Tap accept.
 3. Within 15 seconds, the apps are syncing again.
 
 ### M7 demo
-1. Install PWA on Android Chrome. Use offline. Install on iOS Safari. Use offline.
-2. Walk a non-technical friend through the pairing flow without coaching. They succeed in under 2 minutes.
-3. Read the README cold. Understand the privacy model.
+1. Install PWA on both Android phones. Use offline.
+2. Walk your partner through the pairing flow once. It works on the first try.
+3. Read the README cold. Confirm the privacy model is documented well enough that you'd remember it in six months.
 
 ---
 
 ## 10. Browser / device support matrix (target for v1)
 
-| Browser | Onboarding | Single-user use | QR pair | Code pair | Notes |
-|---|:-:|:-:|:-:|:-:|---|
-| Chrome (Android) | ✅ | ✅ | ✅ | ✅ | Primary target |
-| Safari (iOS 17+) | ✅ | ✅ | ⚠️ | ✅ | QR may be flaky in standalone PWA; share-code is the recommended path on iOS |
-| Chrome (desktop) | ✅ | ✅ | ✅ | ✅ | Useful for entering bulk expenses |
-| Safari (macOS) | ✅ | ✅ | ✅ | ✅ | |
-| Firefox | ✅ | ✅ | ✅ | ✅ | |
-| Old browsers (no Ed25519) | ❌ | — | — | — | Show "please update" |
+| Browser | Onboarding | Single-user | QR pair | Notes |
+|---|:-:|:-:|:-:|---|
+| Chrome (Android) | ✅ | ✅ | ✅ | **Primary target — fully tested.** |
+| Chrome (desktop) | ⚠️ | ⚠️ | — | Should work; not tested in v1. Useful for bulk entry if wanted. |
+| Other modern browsers | ⚠️ | ⚠️ | — | Should work; not tested in v1. |
+| iOS Safari | — | — | — | **Out of scope in v1** (per §1.1). Revisit in v2. |
+| Old browsers (no Ed25519) | ❌ | — | — | Show "please update." |
+
+Code-pair column removed since M5 is deferred.
 
 ---
 
@@ -645,22 +650,23 @@ These are the concrete walkthroughs you'll do in the browser to verify each mile
 |---|---|
 | M0 | 1 |
 | M1 | 2–3 |
-| M2 | 2 |
+| M2 | 1.5 (simplified-debts UI dropped) |
 | M3 | 1 |
 | M4 | 3 |
-| M5 | 1 |
+| M5 | — (deferred to v2) |
 | M6 | 1–2 |
-| M7 | 2 |
+| M7 | 1.5–2 (lighter README; no iOS) |
 
-Total: ~13–15 working sessions. Ranges reflect WebRTC variance and iOS testing friction.
+Total: ~10–12 working sessions. Range reflects WebRTC variance.
 
 ---
 
 ## 12. What I want from you on this plan
 
-1. Answer the ten Open Questions in §2.
+1. Answer the remaining nine Open Questions in §2 (Q#2 is now resolved — Android-only).
 2. Push back on any ADR you disagree with (§3) — these are the load-bearing decisions.
-3. Approve, modify, or rebalance the milestones (§5). I won't write code until you sign off.
+3. Approve, modify, or rebalance the milestones (§5), especially the M2 simplified-debts trim and the M5 deferral. I won't write code until you sign off.
 4. Tell me whether to ask for confirmation at the end of each milestone, or whether you'd prefer milestones to chain automatically once they pass their acceptance criteria (I default to "ask").
+5. If you have more numbered feedback items beyond your "1." (closed-group framing), send them — I'll fold them in the same way before any code is written.
 
 Ready when you are.

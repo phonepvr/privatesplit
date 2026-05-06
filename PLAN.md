@@ -10,13 +10,13 @@
 
 The brief calls it **PrivShare** as a working name. The repo is `privatesplit`. A few alternatives that fit the repo and the privacy theme:
 
-| Name | Why it might work | Why it might not |
-|---|---|---|
-| **PrivShare** (default) | Matches the brief; says what it does | A bit generic |
-| **PrivateSplit** | Matches repo name exactly | Long; "Private" feels defensive |
-| **Splitless** | "Wireless/paperless" pun lands the no-server angle | Slightly clever |
-| **Halve** | Short, friendly, owns a verb | Not obviously about money |
-| **Tally** | Evokes a shared paper ledger | Slightly generic; an unrelated app exists |
+| Name                    | Why it might work                                  | Why it might not                          |
+| ----------------------- | -------------------------------------------------- | ----------------------------------------- |
+| **PrivShare** (default) | Matches the brief; says what it does               | A bit generic                             |
+| **PrivateSplit**        | Matches repo name exactly                          | Long; "Private" feels defensive           |
+| **Splitless**           | "Wireless/paperless" pun lands the no-server angle | Slightly clever                           |
+| **Halve**               | Short, friendly, owns a verb                       | Not obviously about money                 |
+| **Tally**               | Evokes a shared paper ledger                       | Slightly generic; an unrelated app exists |
 
 **Recommendation:** Stick with `PrivShare` for v1 unless you say otherwise. Doesn't block M0.
 
@@ -80,6 +80,7 @@ Three ADRs the brief asked for. I'll commit them as separate files under `docs/a
 **Decision:** Yjs.
 
 **Reasoning:**
+
 - Smaller bundle (Yjs core ~30KB gz; Automerge 2 ~80KB gz with WASM). Bundle size matters for a PWA people install on phones.
 - Battle-tested in browsers (Notion-clones, drawing apps, Google-Docs-clones).
 - Y.Map / Y.Array models the brief's data model 1:1 (group meta as Y.Map, expenses as Y.Array of Y.Map).
@@ -90,6 +91,7 @@ Three ADRs the brief asked for. I'll commit them as separate files under `docs/a
 **Why not Automerge 2:** cleaner JSON-like API but heavier, and the Yjs ecosystem (especially y-indexeddb) is more aligned with our exact use case.
 
 **Tradeoffs accepted:**
+
 - Yjs's edit history is opaque; if we want a per-field edit history UI ("who changed what"), we maintain it explicitly as a parallel Y.Array of audit events.
 - Less expressive deep-tree merging than Automerge — fine for a flat-ish ledger.
 
@@ -98,12 +100,14 @@ Three ADRs the brief asked for. I'll commit them as separate files under `docs/a
 **Decision:** Hand-rolled `RTCPeerConnection` + single `RTCDataChannel` per peer, with our own SDP-via-QR/share-code signaling. Yjs updates flow over the channel using `Y.encodeStateAsUpdate` / `Y.applyUpdate`.
 
 **Reasoning:**
+
 - `y-webrtc` requires a public WebSocket signaling server (default: `signaling.yjs.dev`). That breaks the "no internet ever" promise on its face. Hosting our own would require infrastructure we explicitly don't want.
 - `y-webrtc`'s mesh model assumes a known room name and discovery via the signaling server; we instead want explicit pairwise pairing.
 - Our transport surface is small: open a channel, exchange Yjs state vectors, ship updates. ~200 lines of code, no dependency footprint, full control over framing/auth.
 - Plays nicely with our pairing UX where the user explicitly authorizes a peer rather than joining a "room."
 
 **What the transport does:**
+
 1. On connect, both sides exchange `{deviceFingerprint, supportedFeatures, signedHello}`.
 2. Each side computes its Yjs state vector and sends it.
 3. Each side responds with the diff: `Y.encodeStateAsUpdate(doc, remoteStateVector)`.
@@ -112,6 +116,7 @@ Three ADRs the brief asked for. I'll commit them as separate files under `docs/a
 6. Heartbeat ping/pong every 15s. On disconnect, mark the peer as offline; UI shows it.
 
 **Tradeoffs accepted:**
+
 - We re-implement the small bits y-webrtc gives for free. Worth it for the privacy guarantee and code clarity.
 
 ### ADR-0003 — Local storage: **IndexedDB** via Dexie + `y-indexeddb` (over OPFS)
@@ -119,6 +124,7 @@ Three ADRs the brief asked for. I'll commit them as separate files under `docs/a
 **Decision:** IndexedDB. Dexie wraps queryable tables (members, expenses-cache, settlements, groups, peers, audit log). `y-indexeddb` persists each group's Yjs document.
 
 **Reasoning:**
+
 - IndexedDB is universally supported; OPFS is not (Safari got it 2023, but the ecosystem around querying is thin).
 - Dexie gives us indexed queries, schema migrations, and a familiar API.
 - We don't have large blobs (no images in v1), so OPFS's perf advantages don't apply.
@@ -126,6 +132,7 @@ Three ADRs the brief asked for. I'll commit them as separate files under `docs/a
 - Quota: Chrome ≥ several GB, Safari ~1GB but evicts on storage pressure. Plenty for years of a small group's expenses.
 
 **Tradeoffs accepted:**
+
 - Async-only API for IDB; we always treat persistence writes as fire-and-forget after Yjs has acknowledged them in-memory.
 - If we ever want OPFS for, say, encrypted blob backup files (v2 receipts), we adopt OPFS additionally — not as a replacement.
 
@@ -174,10 +181,10 @@ This is the spine of the app. I'm putting it here so the milestones make sense; 
 - Yjs doc shape per group:
   ```ts
   {
-    meta: Y.Map      // { name, currency, createdAt, archivedAt? }
-    members: Y.Array<Y.Map>   // { id, name, color, claimedBy?: deviceFingerprint, removedAt? }
-    expenses: Y.Array<Y.Map>  // see §4.4
-    settlements: Y.Array<Y.Map>  // { id, fromMemberId, toMemberId, amountMinor, date, note, deleted, audit }
+    meta: Y.Map; // { name, currency, createdAt, archivedAt? }
+    members: Y.Array<Y.Map>; // { id, name, color, claimedBy?: deviceFingerprint, removedAt? }
+    expenses: Y.Array<Y.Map>; // see §4.4
+    settlements: Y.Array<Y.Map>; // { id, fromMemberId, toMemberId, amountMinor, date, note, deleted, audit }
   }
   ```
 
@@ -242,6 +249,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 ### M0 — Skeleton, plan, ADRs
 
 **Scope**
+
 - Vite + React 18 + TS + Tailwind + Zustand bootstrapped.
 - `service-worker.ts` with the same-origin-only enforcement plus a Vitest unit test (mocks `fetch` and verifies the SW responds 599 to cross-origin) and a Playwright smoke test.
 - `docs/adr/0001..0003` committed (matching §3 above).
@@ -251,6 +259,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 - README seed (the deep README is M7).
 
 **Acceptance criteria — what you'll check**
+
 - [ ] You can open Codespaces, run `npm install && npm run dev`, see "Hello PrivShare" at `localhost:5173`.
 - [ ] You can run `npm run test` (Vitest) and `npm run test:e2e` (Playwright).
 - [ ] You push to main and within ~3 minutes the site is live at the pages URL.
@@ -260,6 +269,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 ### M1 — Local-only single-user app
 
 **Scope**
+
 - Onboarding screen (display name + the one-screen privacy explainer).
 - Bottom-nav shell with Groups, Activity, Add (FAB), Profile.
 - Create / list / archive / delete groups. **First-group creation prompts "Who do you split with?" and pre-fills Member 1 = you, Member 2 = partner.**
@@ -271,6 +281,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 - Mobile-first layout tested at 380px.
 
 **Out of scope for M1**
+
 - Unequal splits (M2)
 - Settlements (M2)
 - CSV export (M2)
@@ -278,6 +289,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 - Sync (M4+)
 
 **Acceptance criteria**
+
 - [ ] On a fresh install, onboarding flow takes < 30 seconds.
 - [ ] Creating a group with 4 members and 5 expenses produces visually correct balances that I can verify on paper.
 - [ ] Force-quit and reopen: data is intact.
@@ -288,6 +300,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 ### M2 — Money math, unequal splits, settlements, CSV
 
 **Scope**
+
 - Unequal-split editor (per-participant exact amount; live-validates that they sum to the total).
 - Settlement entry (member A pays member B amount X on date Y).
 - Per-group balance view stays as the M1 single net-balance line for N=2. (For N≥3, the UI falls back to a per-member balance grid — implementation included for correctness, not for v1's primary path.)
@@ -307,6 +320,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
   - Property-based test (fast-check): for any random expense set, sum of balances is exactly zero.
 
 **Acceptance criteria**
+
 - [ ] You can construct any expense scenario you've ever had in real life and the balances are right.
 - [ ] CSV opens in Excel, Numbers, and Google Sheets without manual fixing.
 - [ ] Net balance line for a 2-person group always reduces to one of: "you owe X", "X owes you", "all settled."
@@ -317,6 +331,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 > With M5 deferred to v2, `.privshare` is the **v1 mechanism for moving a group to a new device** when LAN-pairing isn't possible (e.g., new phone purchase, partner is in another city). Send the file via any messenger or email; import on the receiving device.
 
 **Scope**
+
 - Export a group as `.privshare`: a single file containing
   - A small JSON header `{format:'privshare', v:1, groupId, groupName, exportedAt, exportedByDevice, schema:{yjsVersion, fields...}}`
   - A base64-encoded `Y.encodeStateAsUpdate(doc)` payload
@@ -327,6 +342,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 - Settings → Backup & Restore screen.
 
 **Acceptance criteria**
+
 - [ ] Round-trip: export a group, delete it locally, re-import → identical state.
 - [ ] Export from Device A → import on Device B (separate browser profile) → both have the same group with no sync.
 - [ ] Make divergent edits on A and B, export both, import each into the other → final state on both is identical (CRDT convergence).
@@ -337,6 +353,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 > Framed in v1 as a one-time **"set up your partner's phone"** event. QR is the unambiguous primary path on Android Chrome PWA. Share-code (M5) is deferred to v2.
 
 **Scope**
+
 - Pairing screen — single QR tab in v1.
 - Animated multi-frame QR for SDP (chunking + reassembly with sequence numbers; max ~5 frames at 4 fps).
 - Camera-based scanner using `@zxing/browser`.
@@ -349,6 +366,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
   - Verifies that an expense added on Context A appears on Context B within 2 seconds.
 
 **Acceptance criteria**
+
 - [ ] Two real devices on the same WiFi pair end-to-end in under 90 seconds (timed).
 - [ ] Edits on one show up on the other within 2 seconds.
 - [ ] Force-quitting one device and bringing it back: when you re-open the pairing screen and re-scan, history merges correctly with no duplicates.
@@ -370,12 +388,14 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 > Especially valuable for this use case: a couple opens both apps daily and expects sync to "just work" without re-pairing. Honest scope below — true zero-touch isn't possible from a browser.
 
 **Scope**
+
 - On app open, the app reads `peers` and shows known peers' status: "Last seen here 2 days ago."
 - For each known peer, a one-tap "Reconnect" button generates a fresh QR and waits for the other side to scan. The other device, if open, shows a "Reconnect with Alex?" toast that auto-launches its scanner. (Both devices need to be open; we cannot wake a closed PWA.)
 - We do **not** claim true zero-touch reconnect — this requires LAN discovery the browser doesn't expose. See §8 risk #6 for a detailed honest description and the few opt-in paths (BroadcastChannel for same-browser, a "tap to reconnect" tray entry).
 - Optional: a short-lived "rendezvous" mode where both devices, on the same WiFi, broadcast a hashed group-id over WebRTC mDNS-style hostnames — investigated; if not feasible, dropped from M6 and noted.
 
 **Acceptance criteria**
+
 - [ ] Two previously paired devices on the same WiFi can re-sync in under 15 seconds with at most two taps each.
 - [ ] No internet calls during reconnect.
 - [ ] If one device is offline, the other shows "Alex's device isn't reachable" — not a hung UI.
@@ -383,6 +403,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 ### M7 — Polish + production deploy
 
 **Scope**
+
 - PWA install prompt (`beforeinstallprompt`) with our own UI affordance, since stock prompts are dismissed reflexively.
 - Offline indicator in the header (always "offline by design" — small green dot reading "Local mode"); separate sync indicator showing peer connection status.
 - Edit history viewer per expense.
@@ -399,6 +420,7 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 - License (MIT? Apache 2.0? — flag in PR).
 
 **Acceptance criteria**
+
 - [ ] Lighthouse PWA + Performance + Accessibility ≥ 90 on Android Chrome mobile profile.
 - [ ] You can install the PWA on Android Chrome and use it offline.
 - [ ] Factory reset wipes all data and re-runs onboarding.
@@ -503,15 +525,15 @@ Each milestone ends with a concrete review. I'll only proceed to the next once y
 
 ## 7. Test strategy summary
 
-| Layer | Tooling | What we test |
-|---|---|---|
-| Money math | Vitest + fast-check | Splits, remainders, debt simplification (≥ 50 cases + property tests) |
-| CRDT plumbing | Vitest | Yjs doc creation, Dexie hydration, audit log integrity |
-| Crypto | Vitest | Keypair gen, signing, fingerprint, AES-GCM round-trip |
-| Pairing codec | Vitest | Offer/answer encode → chunk → reassemble (QR frames) |
-| Service worker | Vitest + Playwright | Same-origin allow, cross-origin block (status 599) |
-| End-to-end UX | Playwright | Onboarding, single-user flows, two-context pairing, sync convergence |
-| Visual regression (lite) | Playwright screenshots | Key screens at 380px and 768px |
+| Layer                    | Tooling                | What we test                                                          |
+| ------------------------ | ---------------------- | --------------------------------------------------------------------- |
+| Money math               | Vitest + fast-check    | Splits, remainders, debt simplification (≥ 50 cases + property tests) |
+| CRDT plumbing            | Vitest                 | Yjs doc creation, Dexie hydration, audit log integrity                |
+| Crypto                   | Vitest                 | Keypair gen, signing, fingerprint, AES-GCM round-trip                 |
+| Pairing codec            | Vitest                 | Offer/answer encode → chunk → reassemble (QR frames)                  |
+| Service worker           | Vitest + Playwright    | Same-origin allow, cross-origin block (status 599)                    |
+| End-to-end UX            | Playwright             | Onboarding, single-user flows, two-context pairing, sync convergence  |
+| Visual regression (lite) | Playwright screenshots | Key screens at 380px and 768px                                        |
 
 CI matrix: Linux only on GitHub Actions, Chromium via Playwright (matches the Android Chrome target). Firefox/WebKit deferred to v2 alongside iOS.
 
@@ -520,28 +542,34 @@ CI matrix: Linux only on GitHub Actions, Chromium via Playwright (matches the An
 ## 8. Risks & gotchas
 
 ### 8.1 iOS Safari WebRTC quirks — **out of scope in v1**
+
 v1 targets Android Chrome only (per §1.1). iOS support is a v2 concern; if we adopt it, this section returns with mitigations (camera-in-standalone-PWA quirks, mDNS-rewritten ICE candidates, etc.).
 
 ### 8.2 SDP-too-large-for-one-QR
+
 - Without TURN, our SDP is ~1–3 KB. Single QR (version 40, binary) holds up to ~2.9 KB raw; with our prefix overhead and gzip we'll usually fit but not reliably.
 - **Mitigation:** always animate QR with a 2–6 frame loop. Receiver assembles by frame index. We use a deterministic chunker (`{seq, total, payload}`), not a fountain code, in v1 — fountain is overkill at 6 frames. Animation rate ~3 fps; receiver typically captures all frames within 2s.
 - **Compression:** gzip via `pako` before chunking trims SDP by ~50%.
 
 ### 8.3 IndexedDB quota limits
+
 - Safari ~1 GB, Chrome much more, Firefox respects quota gracefully. Quota pressure can lead to silent eviction.
 - **Mitigation:** call `navigator.storage.persist()` after onboarding to request "persisted" status. Periodically run a Yjs compaction job: read full state, replace with `Y.encodeStateAsUpdate(doc)` as a fresh doc with no history payload. Surface "Storage usage: X MB" in Settings → Diagnostics.
 
 ### 8.4 Service worker caching invalidation when you push updates
+
 - Classic problem: installed PWA serves stale assets after new build.
 - **Mitigation:** Vite emits content-hashed asset names. SW pre-caches them with a manifest that includes a build timestamp. New SW installs in background; UI shows "Update available" banner; user taps "Restart." We never auto-skip-waiting mid-session because that can interrupt expense entry.
 
 ### 8.5 Mixed-content / HTTPS for WebRTC vs LAN peers
+
 - Browsers require a secure context for WebRTC. GitHub Pages serves HTTPS, so this is satisfied for both peers.
 - Two peers on the same WiFi each load `https://phonepvr.github.io/privatesplit/` (each over its own HTTPS connection to GitHub). After install, they both run from cached SW. The WebRTC DataChannel is **direct LAN** between them — DTLS-encrypted at the DataChannel layer regardless of TLS. No HTTP request actually traverses the LAN; the DataChannel is its own transport.
 - There is no mixed-content concern because we never attempt an `http://` subresource.
 - **Caveat:** if a corporate WiFi blocks UDP, the LAN candidates fail. We display "couldn't reach peer" and suggest a hotspot. Document.
 
 ### 8.6 "Auto-reconnect" honesty
+
 - True zero-touch reconnect from a closed PWA on the same LAN is **not possible** in browsers without a signaling channel. Browsers don't expose:
   - mDNS service discovery
   - LAN broadcast sockets
@@ -554,22 +582,27 @@ v1 targets Android Chrome only (per §1.1). iOS support is a v2 concern; if we a
 - **Mitigation:** name M6 honestly in the UI. Don't promise magic. Two taps on each device beats a fragile auto-flow that sometimes fails for unclear reasons.
 
 ### 8.7 Web Crypto Ed25519 availability
+
 - Ed25519 in Web Crypto is supported in Chromium 113+, Safari 17+, Firefox 130+. For 2026, near-universal.
 - **Mitigation:** feature-detect at startup; if missing, show a "Please update your browser" screen. Don't fall back to a JS implementation — the security/correctness review is not worth the 2% of users on EOL browsers.
 
 ### 8.8 Yjs document growth
+
 - Yjs preserves per-edit metadata; a long-lived group's doc can grow MB-large.
 - **Mitigation:** the periodic compaction job in §8.3 trims to current state. We accept losing CRDT-merge-compatibility with very-old offline replicas after compaction (i.e., a device that's been offline for a year then comes back may need a full re-sync rather than a delta — acceptable).
 
 ### 8.9 Clock skew between devices
+
 - `createdAt`, `updatedAt`, `history` all use device-local clocks. Two devices' clocks may differ.
 - **Mitigation:** trust `Date.now()` for human-facing timestamps but never rely on them for ordering inside Yjs (Yjs's vector clocks order ops). When showing history, always show the device name + that device's local timestamp; never claim a global ordering.
 
 ### 8.10 Member removal vs. balance-preservation
+
 - Removing a member after they've participated in expenses must not erase those expenses or break balances.
 - **Mitigation:** "remove" sets `removedAt` on the member; UI hides them from new-expense pickers but keeps showing them in historical expenses with a small "(left group)" badge. Balance computation continues to include them.
 
 ### 8.11 GitHub-Pages-only CI/CD (no Mr. X CLI)
+
 - You upload via browser. Every command in our docs must run either in a Codespace or in a workflow.
 - **Mitigation:** the deploy workflow runs the entire pipeline; you only need to merge to main to ship. Codespaces is the documented dev environment. README has zero "run this on your laptop" instructions.
 
@@ -580,12 +613,14 @@ v1 targets Android Chrome only (per §1.1). iOS support is a v2 concern; if we a
 These are the concrete walkthroughs you'll do in the browser to verify each milestone before approval.
 
 ### M0 demo
+
 1. Open the live PWA URL on your phone. See a "Hello PrivShare" screen.
 2. Open DevTools → Application → Service Workers. Confirm SW is active.
 3. In DevTools console, run `await fetch('https://example.com')`. Expect status 599 and a console error.
 4. Open the Actions tab on GitHub. See the green deploy run.
 
 ### M1 demo
+
 1. Onboard as "Alex." Read the privacy explainer.
 2. Create a group "Goa Trip." Onboarding-from-zero pre-fills Alex; you add Priya as Member 2.
 3. Add 5 expenses (e.g., Alex paid 2400 for dinner, equal split; Priya paid 800 for coffee; etc.).
@@ -594,6 +629,7 @@ These are the concrete walkthroughs you'll do in the browser to verify each mile
 6. Toggle airplane mode on. Add another expense. App works normally.
 
 ### M2 demo
+
 1. In "Goa Trip," add an unequal expense: ₹1000, paid by Alex; Alex 400, Priya 600.
 2. Add a settlement: Priya pays Alex ₹200 cash.
 3. Open balance view. Confirm the single net-balance line reflects both events correctly.
@@ -601,6 +637,7 @@ These are the concrete walkthroughs you'll do in the browser to verify each mile
 5. Run `npm run test`; see ≥ 50 money tests pass — including N≥3 simplified-debt cases that aren't UI-exposed but are covered by tests.
 
 ### M3 demo
+
 1. Export "Goa Trip" as `.privshare`.
 2. Delete the group. Verify it's gone.
 3. Import the file. Group reappears identically.
@@ -608,6 +645,7 @@ These are the concrete walkthroughs you'll do in the browser to verify each mile
 5. On both profiles, add divergent expenses while offline. Export both. Cross-import. Final state on both is identical (CRDT convergence verified).
 
 ### M4 demo
+
 1. Your Android phone (Alex) and partner's Android phone (Priya), same home WiFi.
 2. Phone A: Pair → Show QR. Phone B: Pair → Scan QR.
 3. Camera reads animated QR; phone B generates answer; phone A scans phone B's QR.
@@ -616,14 +654,17 @@ These are the concrete walkthroughs you'll do in the browser to verify each mile
 6. Confirm DevTools Network tab shows zero HTTP traffic during the entire pairing.
 
 ### M5 demo
+
 Deferred to v2. See §5 M5 for the trigger conditions to revisit.
 
 ### M6 demo
+
 1. Re-open both phones the next day. Both auto-detect the previously-paired peer.
 2. Tap "Reconnect with Priya" on phone A. Phone B shows "Reconnect with Alex?" toast. Tap accept.
 3. Within 15 seconds, the apps are syncing again.
 
 ### M7 demo
+
 1. Install PWA on both Android phones. Use offline.
 2. Walk your partner through the pairing flow once. It works on the first try.
 3. Read the README cold. Confirm the privacy model is documented well enough that you'd remember it in six months.
@@ -632,13 +673,13 @@ Deferred to v2. See §5 M5 for the trigger conditions to revisit.
 
 ## 10. Browser / device support matrix (target for v1)
 
-| Browser | Onboarding | Single-user | QR pair | Notes |
-|---|:-:|:-:|:-:|---|
-| Chrome (Android) | ✅ | ✅ | ✅ | **Primary target — fully tested.** |
-| Chrome (desktop) | ⚠️ | ⚠️ | — | Should work; not tested in v1. Useful for bulk entry if wanted. |
-| Other modern browsers | ⚠️ | ⚠️ | — | Should work; not tested in v1. |
-| iOS Safari | — | — | — | **Out of scope in v1** (per §1.1). Revisit in v2. |
-| Old browsers (no Ed25519) | ❌ | — | — | Show "please update." |
+| Browser                   | Onboarding | Single-user | QR pair | Notes                                                           |
+| ------------------------- | :--------: | :---------: | :-----: | --------------------------------------------------------------- |
+| Chrome (Android)          |     ✅     |     ✅      |   ✅    | **Primary target — fully tested.**                              |
+| Chrome (desktop)          |     ⚠️     |     ⚠️      |    —    | Should work; not tested in v1. Useful for bulk entry if wanted. |
+| Other modern browsers     |     ⚠️     |     ⚠️      |    —    | Should work; not tested in v1.                                  |
+| iOS Safari                |     —      |      —      |    —    | **Out of scope in v1** (per §1.1). Revisit in v2.               |
+| Old browsers (no Ed25519) |     ❌     |      —      |    —    | Show "please update."                                           |
 
 Code-pair column removed since M5 is deferred.
 
@@ -646,16 +687,16 @@ Code-pair column removed since M5 is deferred.
 
 ## 11. Estimated effort (rough; for your planning, not a commitment)
 
-| Milestone | Effort (sessions) |
-|---|---|
-| M0 | 1 |
-| M1 | 2–3 |
-| M2 | 1.5 (simplified-debts UI dropped) |
-| M3 | 1 |
-| M4 | 3 |
-| M5 | — (deferred to v2) |
-| M6 | 1–2 |
-| M7 | 1.5–2 (lighter README; no iOS) |
+| Milestone | Effort (sessions)                 |
+| --------- | --------------------------------- |
+| M0        | 1                                 |
+| M1        | 2–3                               |
+| M2        | 1.5 (simplified-debts UI dropped) |
+| M3        | 1                                 |
+| M4        | 3                                 |
+| M5        | — (deferred to v2)                |
+| M6        | 1–2                               |
+| M7        | 1.5–2 (lighter README; no iOS)    |
 
 Total: ~10–12 working sessions. Range reflects WebRTC variance.
 

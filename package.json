@@ -17,12 +17,20 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@zxing/browser": "^0.2.0",
+    "dexie": "^4.4.2",
+    "pako": "^2.1.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "ulid": "^3.0.2",
+    "y-indexeddb": "^9.0.12",
+    "yjs": "^13.6.30",
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@playwright/test": "^1.45.3",
     "@types/node": "^20.14.15",
+    "@types/pako": "^2.0.4",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
@@ -34,6 +42,7 @@
     "eslint-plugin-react": "^7.35.0",
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.9",
+    "fast-check": "^4.7.0",
     "happy-dom": "^14.12.3",
     "postcss": "^8.4.41",
     "prettier": "^3.3.3",

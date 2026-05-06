@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-test('home page renders', async ({ page }) => {
+test('onboarding screen renders', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Hello PrivShare' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'PrivShare' })).toBeVisible();
+  await expect(page.getByText(/Local-first expense splitter/)).toBeVisible();
 });
 
 test('manifest is reachable', async ({ page, baseURL }) => {

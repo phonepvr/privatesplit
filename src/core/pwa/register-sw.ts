@@ -1,3 +1,5 @@
+import { useUi } from '../../stores/ui-store';
+
 const SW_PATH = `${import.meta.env.BASE_URL}service-worker.js`;
 
 export function registerServiceWorker(): void {
@@ -11,9 +13,23 @@ export function registerServiceWorker(): void {
   }
 
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register(SW_PATH, { scope: import.meta.env.BASE_URL }).catch((err) => {
-      console.error('[PrivShare] Service worker registration failed', err);
-    });
+    navigator.serviceWorker
+      .register(SW_PATH, { scope: import.meta.env.BASE_URL })
+      .then((reg) => {
+        if (reg.waiting) useUi.getState().setSwUpdateAvailable(true);
+        reg.addEventListener('updatefound', () => {
+          const sw = reg.installing;
+          if (!sw) return;
+          sw.addEventListener('statechange', () => {
+            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+              useUi.getState().setSwUpdateAvailable(true);
+            }
+          });
+        });
+      })
+      .catch((err) => {
+        console.error('[PrivShare] Service worker registration failed', err);
+      });
 
     navigator.serviceWorker.addEventListener('message', (event) => {
       if (event.data && event.data.type === 'sw:cross-origin-blocked') {

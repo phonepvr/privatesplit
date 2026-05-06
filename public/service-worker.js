@@ -4,7 +4,7 @@
  * app assets is added in M7. Keep classification logic in sync with
  * src/core/pwa/sw-policy.ts. */
 
-const SW_VERSION = '0.1.0-m0';
+const SW_VERSION = '0.1.0-m7';
 const ALLOWED_NON_HTTP_SCHEMES = ['chrome-extension:', 'moz-extension:', 'devtools:'];
 
 function classifyRequest(requestUrl, swOrigin) {

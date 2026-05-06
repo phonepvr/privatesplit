@@ -24,7 +24,7 @@ The brief calls it **PrivShare** as a working name. The repo is `privatesplit`. 
 
 ## 1. Problem, restated in my words
 
-We're building a PWA that does the Splitwise core loop — groups, members, expenses, splits, balances, settle-up — under a hard rule: no expense data ever touches a server. Ours or anyone else's. The app installs once from GitHub Pages and runs from local storage forever after. Two paired devices on the same WiFi sync over a direct WebRTC DataChannel. Pairing exchanges the WebRTC SDP offer/answer as an animated QR code — no signaling server. Yjs handles convergence; integer-paise math handles money correctness; a strict service worker enforces the "no internet" promise.
+We're building a PWA that does the standard expense-splitter core loop — groups, members, expenses, splits, balances, settle-up — under a hard rule: no expense data ever touches a server. Ours or anyone else's. The app installs once from GitHub Pages and runs from local storage forever after. Two paired devices on the same WiFi sync over a direct WebRTC DataChannel. Pairing exchanges the WebRTC SDP offer/answer as an animated QR code — no signaling server. Yjs handles convergence; integer-paise math handles money correctness; a strict service worker enforces the "no internet" promise.
 
 The genuinely hard parts:
 
@@ -53,7 +53,7 @@ Numbered so you can answer inline.
 
 2. ~~**iOS Safari priority.**~~ **Resolved (you confirmed):** out of scope for v1 — Android only. This drops the iOS-fallback framing of share-code, removes risk §8.1, and shapes M4/M5 below.
 
-3. **Member ↔ device claim model.** A "member" is a name (a person). A "device" is a physical device with an Ed25519 keypair. Splitwise lets you add a person by name before they install the app; later, when they install, they "claim" their member entry. I want the same: anyone can be added by name, and a paired device claims an existing member entry during pairing. **Confirm or push back.**
+3. **Member ↔ device claim model.** A "member" is a name (a person). A "device" is a physical device with an Ed25519 keypair. The model: anyone can be added to a group by name before they install the app; later, when their device pairs in, that device "claims" the existing member entry. **Confirm or push back.**
 
 4. **Per-group vs per-device pairing.** When Alice pairs with Bob, are they paired (a) at the device level (so future groups they share need only an "invite Bob" action), or (b) per group (re-pair for each new shared group)? **Recommendation: (a) — pair once, then "invite Bob to Group X" sends the group key over the existing/restored channel. M4 will ship (b) as the simpler primitive; (a) is a small extension in M5/M6.**
 

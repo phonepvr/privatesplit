@@ -30,6 +30,8 @@ export function PairScreen({ onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const offerSessionRef = useRef<Awaited<ReturnType<typeof createOfferSession>> | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const answerAppliedRef = useRef(false);
+  const joinStartedRef = useRef(false);
 
   useEffect(
     () => () => {
@@ -73,12 +75,31 @@ export function PairScreen({ onBack }: Props) {
 
   async function acceptAnswer(payload: string) {
     setError(null);
+    if (answerAppliedRef.current) {
+      setStatus('Answer already accepted — waiting for channel.');
+      return;
+    }
+    if (!payload.trim()) {
+      setError('Empty answer — paste or scan the partner’s code first.');
+      return;
+    }
+    const session = offerSessionRef.current;
+    if (!session) {
+      setError('No offer session is open. Start hosting again.');
+      return;
+    }
+    if (session.pc.signalingState !== 'have-local-offer') {
+      setError(
+        `Cannot apply answer: connection is in "${session.pc.signalingState}" state. Start hosting again.`
+      );
+      return;
+    }
+    answerAppliedRef.current = true;
     try {
-      const session = offerSessionRef.current;
-      if (!session) throw new Error('No offer session in progress.');
       await session.acceptAnswer(payload);
       setStatus('Answer accepted. Waiting for channel to open…');
     } catch (err) {
+      answerAppliedRef.current = false;
       setError(`Couldn't read answer: ${String((err as Error).message ?? err)}`);
     }
   }
@@ -86,10 +107,12 @@ export function PairScreen({ onBack }: Props) {
   async function startJoin(payload: string) {
     if (!identity) return;
     setError(null);
+    if (joinStartedRef.current) return;
     if (!payload.trim()) {
       setError('Paste or scan the offer first.');
       return;
     }
+    joinStartedRef.current = true;
     try {
       const session = await createAnswerSession({ identity, encodedOffer: payload.trim() });
       pcRef.current = session.pc;
@@ -118,6 +141,7 @@ export function PairScreen({ onBack }: Props) {
         });
       });
     } catch (err) {
+      joinStartedRef.current = false;
       setError(`Couldn't read offer: ${String((err as Error).message ?? err)}`);
     }
   }
@@ -234,31 +258,43 @@ export function PairScreen({ onBack }: Props) {
             <div className="rounded-xl border border-slate-200 bg-white p-4">
               <h3 className="text-sm font-semibold">Now: receive the answer</h3>
               <p className="mt-1 text-xs text-slate-500">
-                After your partner scans the QR above, their phone will show an answer QR. Scan that
-                or paste it below.
+                After your partner scans the QR above, their phone will show an answer QR. Use ONE
+                of the two options below — not both.
               </p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <Button variant="primary" onClick={() => setScanFor('answer')}>
-                  Scan answer QR
-                </Button>
+
+              <div className="mt-3 rounded-lg border border-slate-200 p-3">
+                <p className="text-xs font-semibold text-slate-700">Option 1 — Scan</p>
                 <Button
-                  variant="secondary"
-                  onClick={() => {
-                    if (answerInput.trim()) void acceptAnswer(answerInput);
-                  }}
-                  disabled={!answerInput.trim()}
+                  className="mt-2"
+                  fullWidth
+                  variant="primary"
+                  disabled={answerAppliedRef.current}
+                  onClick={() => setScanFor('answer')}
                 >
-                  Use pasted text
+                  Open camera and scan answer QR
                 </Button>
               </div>
-              <textarea
-                rows={3}
-                placeholder="Paste partner's answer here"
-                value={answerInput}
-                onChange={(e) => setAnswerInput(e.target.value)}
-                className="mt-3 w-full rounded-lg border border-slate-300 bg-white p-2 text-xs font-mono"
-                data-testid="pair-answer-input"
-              />
+
+              <div className="mt-3 rounded-lg border border-slate-200 p-3">
+                <p className="text-xs font-semibold text-slate-700">Option 2 — Paste</p>
+                <textarea
+                  rows={4}
+                  placeholder="Paste partner's answer text here…"
+                  value={answerInput}
+                  onChange={(e) => setAnswerInput(e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-2 text-xs font-mono"
+                  data-testid="pair-answer-input"
+                />
+                <Button
+                  className="mt-2"
+                  fullWidth
+                  variant="primary"
+                  onClick={() => void acceptAnswer(answerInput)}
+                  disabled={!answerInput.trim() || answerAppliedRef.current}
+                >
+                  Accept pasted answer
+                </Button>
+              </div>
             </div>
           </>
         )}

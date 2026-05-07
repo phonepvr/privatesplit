@@ -14,24 +14,27 @@ export function QrScanner({ onResult, onError }: Props) {
   useEffect(() => {
     const reader = new BrowserQRCodeReader();
     let cancelled = false;
+    let decoded = false;
     (async () => {
       try {
         const devices = await BrowserQRCodeReader.listVideoInputDevices();
         if (devices.length === 0) throw new Error('No camera found');
         const back = devices.find((d) => /back|rear|environment/i.test(d.label)) ?? devices[0]!;
         if (cancelled) return;
-        setStatus('Point the back camera at the QR.');
+        setStatus('Point the back camera at the QR. Hold steady.');
         const controls = await reader.decodeFromVideoDevice(
           back.deviceId,
           videoRef.current!,
           (result, err, ctl) => {
-            if (cancelled) {
+            if (cancelled || decoded) {
               ctl.stop();
               return;
             }
             if (result) {
-              onResult(result.getText());
+              decoded = true;
               ctl.stop();
+              setStatus('Scanned. Processing…');
+              onResult(result.getText());
             } else if (err && err.name !== 'NotFoundException') {
               onError?.(err);
             }

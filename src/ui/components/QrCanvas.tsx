@@ -6,7 +6,7 @@ interface Props {
   size?: number;
 }
 
-export function QrCanvas({ payload, size = 256 }: Props) {
+export function QrCanvas({ payload, size = 320 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [error, setError] = useState<string | null>(null);
 

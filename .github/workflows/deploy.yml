@@ -2,7 +2,10 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main, claude/github-pages-deployment-iz20y]
+    branches:
+      - main
+      - claude/github-pages-deployment-iz20y
+      - claude/privshare-planning-HU3XW
   workflow_dispatch:
 
 permissions:

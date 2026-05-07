@@ -1,22 +1,13 @@
 import * as Y from 'yjs';
 import { getGroupDoc } from '../crdt/group-doc';
 import { hydrateGroupCache } from '../storage/hydration';
+import { useGroups, type SyncStatus } from '../../stores/groups-store';
 
-export type PeerEvent =
-  | { type: 'open'; channel: RTCDataChannel }
-  | { type: 'close' }
-  | { type: 'error'; error: unknown };
-
-export interface PeerSession {
-  pc: RTCPeerConnection;
-  channel: RTCDataChannel | null;
+interface FrameHello {
+  kind: 'hello';
+  role: 'host' | 'joiner';
   groupId: string;
-  remoteFp: string | null;
-  remoteName: string | null;
-  events: EventTarget;
-  close: () => void;
 }
-
 interface FrameStateVector {
   kind: 'state-vector';
   groupId: string;
@@ -30,7 +21,7 @@ interface FrameUpdate {
 interface FrameHeartbeat {
   kind: 'ping' | 'pong';
 }
-type Frame = FrameStateVector | FrameUpdate | FrameHeartbeat;
+type Frame = FrameHello | FrameStateVector | FrameUpdate | FrameHeartbeat;
 
 function b64encode(u: Uint8Array): string {
   let s = '';
@@ -63,9 +54,25 @@ export function newPeerConnection(): RTCPeerConnection {
   return new RTCPeerConnection({ iceServers: [] });
 }
 
-export function attachSyncToChannel(channel: RTCDataChannel, groupId: string): () => void {
+function publish(groupId: string, status: SyncStatus): void {
+  try {
+    useGroups.getState().setSyncStatus(groupId, status);
+  } catch {
+    /* store may not be ready in tests */
+  }
+}
+
+export function attachSyncToChannel(
+  channel: RTCDataChannel,
+  groupId: string,
+  role: 'host' | 'joiner'
+): () => void {
   const doc = getGroupDoc(groupId).doc;
   let unsubDoc: (() => void) | null = null;
+  let receivedRemoteSv = false;
+  let receivedFirstUpdate = false;
+
+  publish(groupId, 'opening');
 
   function send(frame: Frame) {
     if (channel.readyState === 'open') {
@@ -77,17 +84,12 @@ export function attachSyncToChannel(channel: RTCDataChannel, groupId: string): (
     }
   }
 
-  channel.addEventListener('open', () => {
-    const sv = Y.encodeStateVector(doc);
-    send({ kind: 'state-vector', groupId, vectorB64: b64encode(sv) });
-    const onUpdate = (update: Uint8Array, origin: unknown) => {
-      if (origin === channel) return;
-      send({ kind: 'update', groupId, updateB64: b64encode(update) });
-    };
-    doc.on('update', onUpdate);
-    unsubDoc = () => doc.off('update', onUpdate);
-  });
+  function maybeMarkSynced() {
+    if (receivedRemoteSv && receivedFirstUpdate) publish(groupId, 'synced');
+  }
 
+  // Listen for remote frames synchronously so messages arriving before
+  // 'open' fires (rare but possible) are not lost.
   channel.addEventListener('message', (e) => {
     try {
       const frame = JSON.parse(e.data as string) as Frame;
@@ -96,20 +98,52 @@ export function attachSyncToChannel(channel: RTCDataChannel, groupId: string): (
         return;
       }
       if (frame.kind === 'pong') return;
+      if (frame.kind === 'hello') {
+        // Acknowledge by sending our state vector back.
+        publish(groupId, 'exchanging');
+        const sv = Y.encodeStateVector(doc);
+        send({ kind: 'state-vector', groupId, vectorB64: b64encode(sv) });
+        return;
+      }
       if (frame.kind === 'state-vector') {
+        receivedRemoteSv = true;
         const remoteVec = b64decode(frame.vectorB64);
         const diff = Y.encodeStateAsUpdate(doc, remoteVec);
         send({ kind: 'update', groupId, updateB64: b64encode(diff) });
+        publish(groupId, 'exchanging');
+        maybeMarkSynced();
         return;
       }
       if (frame.kind === 'update') {
         const update = b64decode(frame.updateB64);
         Y.applyUpdate(doc, update, channel);
+        receivedFirstUpdate = true;
+        // hydrateGroupCache is fire-and-forget — the store is already
+        // driven directly from Yjs observers, so the UI updates
+        // synchronously when applyUpdate fires the observer.
         void hydrateGroupCache(groupId);
+        maybeMarkSynced();
       }
     } catch (err) {
       console.error('[PrivShare] sync frame error', err);
     }
+  });
+
+  channel.addEventListener('open', () => {
+    publish(groupId, 'exchanging');
+    // Both sides exchange state vectors. We send both a hello AND our SV
+    // so the simpler peer (which only handles SV) still works, and so the
+    // first message after open is independent of who-opened-first.
+    send({ kind: 'hello', role, groupId });
+    const sv = Y.encodeStateVector(doc);
+    send({ kind: 'state-vector', groupId, vectorB64: b64encode(sv) });
+
+    const onUpdate = (update: Uint8Array, origin: unknown) => {
+      if (origin === channel) return;
+      send({ kind: 'update', groupId, updateB64: b64encode(update) });
+    };
+    doc.on('update', onUpdate);
+    unsubDoc = () => doc.off('update', onUpdate);
   });
 
   const heartbeat = setInterval(() => {
@@ -119,6 +153,11 @@ export function attachSyncToChannel(channel: RTCDataChannel, groupId: string): (
   channel.addEventListener('close', () => {
     clearInterval(heartbeat);
     unsubDoc?.();
+    publish(groupId, 'closed');
+  });
+
+  channel.addEventListener('error', () => {
+    publish(groupId, 'error');
   });
 
   return () => {

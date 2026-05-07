@@ -16,6 +16,7 @@ import { BalanceLine } from '../balances/BalanceLine';
 import { formatMinor } from '../../core/money/format';
 import { exportGroupCsv, downloadCsv } from '../export-import/csv';
 import { exportGroupAsBlob } from '../export-import/privshare';
+import { SyncPill } from '../pairing/SyncPill';
 import type { ExpenseCacheRow } from '../../core/storage/db';
 
 interface Props {
@@ -73,13 +74,16 @@ export function GroupDetail({ groupId, onBack }: Props) {
         title={group.name}
         back={onBack}
         right={
-          <button
-            onClick={() => setShowMenu((v) => !v)}
-            className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-100"
-            aria-label="More"
-          >
-            ⋯
-          </button>
+          <>
+            <SyncPill groupId={groupId} />
+            <button
+              onClick={() => setShowMenu((v) => !v)}
+              className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-100"
+              aria-label="More"
+            >
+              ⋯
+            </button>
+          </>
         }
       />
       {showMenu && (
@@ -171,6 +175,18 @@ export function GroupDetail({ groupId, onBack }: Props) {
             </Button>
           </div>
         </div>
+
+        {members.filter((m) => !m.removedAt).length < 2 && (
+          <div className="mt-3 rounded-xl border border-dashed border-sky-300 bg-sky-50 p-4 text-sm text-sky-900">
+            <p className="font-semibold">Add the people you split with</p>
+            <p className="mt-1 text-xs text-sky-800">
+              You need at least one other member to split expenses.
+            </p>
+            <Button className="mt-3" onClick={() => setShowMembers(true)}>
+              + Add a member
+            </Button>
+          </div>
+        )}
 
         <div className="mt-5 flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Activity</h2>

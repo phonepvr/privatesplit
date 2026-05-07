@@ -3,6 +3,7 @@ import { useSession } from '../stores/session-store';
 import { useGroups } from '../stores/groups-store';
 import { useUi } from '../stores/ui-store';
 import { Onboarding } from '../features/onboarding/Onboarding';
+import { BackupPrompt } from '../features/onboarding/BackupPrompt';
 import { GroupsList } from '../features/groups/GroupsList';
 import { GroupDetail } from '../features/groups/GroupDetail';
 import { ActivityFeed } from '../features/activity/ActivityFeed';
@@ -82,6 +83,13 @@ export default function App() {
       <ErrorBoundary>{body}</ErrorBoundary>
       {!navHidden && <BottomNav />}
       <InstallPrompt />
+      <BackupPrompt
+        onOpenProfile={() => {
+          setModal(null);
+          setOpenGroupId(null);
+          useUi.getState().setTab('profile');
+        }}
+      />
     </div>
   );
 }

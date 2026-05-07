@@ -7,6 +7,7 @@ import { useGroups } from '../../stores/groups-store';
 import { db } from '../../core/storage/db';
 import { clearIdentityCache } from '../../core/storage/identity';
 import { importPrivShareFile } from '../export-import/privshare';
+import { exportDeviceAsBlob, importDeviceBackupFile } from '../export-import/device-backup';
 import { PeersList } from '../pairing/PeersList';
 
 interface Props {
@@ -22,7 +23,9 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(identity?.displayName ?? '');
   const fileInput = useRef<HTMLInputElement>(null);
+  const deviceFileInput = useRef<HTMLInputElement>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -39,6 +42,44 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
       setImportMsg(`Import failed: ${result.reason ?? 'unknown'}.`);
     }
     if (fileInput.current) fileInput.current.value = '';
+  }
+
+  async function saveDeviceBackup() {
+    if (!identity || busy) return;
+    setBusy(true);
+    setImportMsg('Building backup…');
+    try {
+      const blob = await exportDeviceAsBlob(identity);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.download = `privshare-${identity.displayName.replace(/\s+/g, '-')}-${stamp}.privshare-device`;
+      a.click();
+      URL.revokeObjectURL(url);
+      localStorage.setItem('privshare:lastBackupAt', String(Date.now()));
+      setImportMsg(`Saved backup of ${groups.length} group(s).`);
+    } catch (err) {
+      setImportMsg(`Backup failed: ${String((err as Error).message ?? err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDeviceFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setImportMsg('Restoring device backup…');
+    const text = await f.text();
+    const result = await importDeviceBackupFile(text);
+    if (result.ok) {
+      setImportMsg(
+        `Restored ${result.importedGroupCount} group(s) from ${result.exportedByDisplayName ?? 'backup'}.`
+      );
+    } else {
+      setImportMsg(`Restore failed: ${result.reason ?? 'unknown'}.`);
+    }
+    if (deviceFileInput.current) deviceFileInput.current.value = '';
   }
 
   async function factoryReset() {
@@ -113,8 +154,16 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-semibold">Backup &amp; restore</h3>
           <p className="mt-1 text-xs text-slate-500">
-            Each group can be exported from inside that group. Import a `.privshare` file here.
+            Your data is auto-saved on this device. Export a single signed backup file you can keep
+            anywhere — restore it on a new device or after a factory reset.
           </p>
+          <input
+            ref={deviceFileInput}
+            type="file"
+            accept=".privshare-device,application/json"
+            hidden
+            onChange={onDeviceFile}
+          />
           <input
             ref={fileInput}
             type="file"
@@ -122,9 +171,15 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
             hidden
             onChange={onFile}
           />
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => fileInput.current?.click()}>
-              Import .privshare
+          <div className="mt-3 grid gap-2">
+            <Button onClick={saveDeviceBackup} disabled={busy || !identity} fullWidth>
+              {busy ? 'Saving…' : 'Save device backup'}
+            </Button>
+            <Button variant="secondary" onClick={() => deviceFileInput.current?.click()} fullWidth>
+              Restore from device backup
+            </Button>
+            <Button variant="ghost" onClick={() => fileInput.current?.click()} fullWidth>
+              Import a single group (.privshare)
             </Button>
           </div>
           {importMsg && <p className="mt-2 text-xs text-slate-600">{importMsg}</p>}

@@ -7,6 +7,7 @@ import { createAnswerSession, createOfferSession } from '../../core/pairing/hand
 import { attachSyncToChannel } from '../../core/sync/transport';
 import { newId } from '../../core/ids/ulid';
 import { getGroupDoc } from '../../core/crdt/group-doc';
+import { ConnectedPanel } from './SyncPill';
 
 interface Props {
   onBack: () => void;
@@ -29,6 +30,7 @@ export function PairScreen({ onBack }: Props) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const answerAppliedRef = useRef(false);
   const joinStartedRef = useRef(false);
+  const [connectedGroupId, setConnectedGroupId] = useState<string | null>(null);
 
   useEffect(
     () => () => {
@@ -61,9 +63,10 @@ export function PairScreen({ onBack }: Props) {
       setStatus(
         'Send this code to your partner. They paste it on their phone and send back an answer.'
       );
-      attachSyncToChannel(session.channel, groupId);
+      attachSyncToChannel(session.channel, groupId, 'host');
       session.channel.addEventListener('open', () => {
         setStatus('Connected. Syncing…');
+        setConnectedGroupId(groupId);
         setMode('connected');
       });
       session.channel.addEventListener('close', () => setStatus('Disconnected.'));
@@ -133,9 +136,10 @@ export function PairScreen({ onBack }: Props) {
           });
           void useGroups.getState().watchGroup(targetGroup);
         }
-        attachSyncToChannel(channel, targetGroup);
+        attachSyncToChannel(channel, targetGroup, 'joiner');
         channel.addEventListener('open', () => {
           setStatus('Connected. Syncing…');
+          setConnectedGroupId(targetGroup);
           setMode('connected');
         });
       });
@@ -308,12 +312,7 @@ export function PairScreen({ onBack }: Props) {
           </>
         )}
 
-        {mode === 'connected' && (
-          <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">
-            Connected. You can leave this screen — sync continues in the background while the app is
-            open on both devices.
-          </p>
-        )}
+        {mode === 'connected' && <ConnectedPanel groupId={connectedGroupId} />}
       </div>
     </div>
   );

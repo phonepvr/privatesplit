@@ -81,17 +81,18 @@ export function GroupsList({ onOpenGroup }: Props) {
           className="space-y-3"
           onSubmit={async (e) => {
             e.preventDefault();
-            if (!name.trim() || !partner.trim() || !identity || busy) return;
+            if (!name.trim() || !identity || busy) return;
             setBusy(true);
             try {
+              const firstMembers: { name: string; claimedByFingerprint?: string }[] = [
+                { name: identity.displayName, claimedByFingerprint: identity.fingerprint },
+              ];
+              if (partner.trim()) firstMembers.push({ name: partner.trim() });
               const id = await createGroup({
                 name: name.trim(),
                 currency,
                 createdByFingerprint: identity.fingerprint,
-                firstMembers: [
-                  { name: identity.displayName, claimedByFingerprint: identity.fingerprint },
-                  { name: partner.trim() },
-                ],
+                firstMembers,
               });
               setShowCreate(false);
               setName('');
@@ -112,12 +113,11 @@ export function GroupsList({ onOpenGroup }: Props) {
             required
           />
           <Input
-            label="Who do you split with?"
-            placeholder="e.g. Priya"
+            label="Who do you split with? (optional)"
+            placeholder="e.g. Priya — you can add more members later"
             value={partner}
             onChange={(e) => setPartner(e.target.value)}
             maxLength={40}
-            required
           />
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-slate-700">Currency</span>

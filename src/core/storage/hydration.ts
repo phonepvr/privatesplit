@@ -3,6 +3,9 @@ import { getGroupDoc } from '../crdt/group-doc';
 import { projectExpense, projectMember, projectSettlement } from '../crdt/projections';
 import type { CurrencyCode } from '../money/types';
 
+// Persist the current Y.Doc projection into Dexie. The Zustand store is
+// driven directly by Yjs observers (see groups-store.ts); Dexie is only used
+// here as a cross-group cache for ActivityFeed-style queries.
 export async function hydrateGroupCache(groupId: string): Promise<GroupRow | null> {
   const handle = getGroupDoc(groupId);
   await handle.ready;
@@ -20,43 +23,19 @@ export async function hydrateGroupCache(groupId: string): Promise<GroupRow | nul
   await db().groups.put(groupRow);
 
   const members = handle.members.map((m) => projectMember(groupId, m));
-  await db().members.where('groupId').equals(groupId).delete();
-  if (members.length) await db().members.bulkPut(members);
-
   const expenses = handle.expenses.map((e) => projectExpense(groupId, e));
-  await db().expenses.where('groupId').equals(groupId).delete();
-  if (expenses.length) await db().expenses.bulkPut(expenses);
-
   const settlements = handle.settlements.map((s) => projectSettlement(groupId, s));
-  await db().settlements.where('groupId').equals(groupId).delete();
-  if (settlements.length) await db().settlements.bulkPut(settlements);
+
+  // Replace per-group rows in a single transaction so a concurrent ActivityFeed
+  // read never sees a half-written state.
+  await db().transaction('rw', db().members, db().expenses, db().settlements, async () => {
+    await db().members.where('groupId').equals(groupId).delete();
+    if (members.length) await db().members.bulkPut(members);
+    await db().expenses.where('groupId').equals(groupId).delete();
+    if (expenses.length) await db().expenses.bulkPut(expenses);
+    await db().settlements.where('groupId').equals(groupId).delete();
+    if (settlements.length) await db().settlements.bulkPut(settlements);
+  });
 
   return groupRow;
-}
-
-export function attachGroupObservers(groupId: string): () => void {
-  const handle = getGroupDoc(groupId);
-  let pending = false;
-  const flush = () => {
-    if (pending) return;
-    pending = true;
-    queueMicrotask(async () => {
-      pending = false;
-      try {
-        await hydrateGroupCache(groupId);
-      } catch (err) {
-        console.error('[PrivShare] Hydration failed', err);
-      }
-    });
-  };
-  handle.meta.observeDeep(flush);
-  handle.members.observeDeep(flush);
-  handle.expenses.observeDeep(flush);
-  handle.settlements.observeDeep(flush);
-  return () => {
-    handle.meta.unobserveDeep(flush);
-    handle.members.unobserveDeep(flush);
-    handle.expenses.unobserveDeep(flush);
-    handle.settlements.unobserveDeep(flush);
-  };
 }

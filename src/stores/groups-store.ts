@@ -142,6 +142,28 @@ export const useGroups = create<GroupsState>((set, get) => ({
     } catch (err) {
       console.error('[PrivShare] Initial hydration failed', err);
     }
+    // Pull current rows from Dexie and inject directly so the React tree
+    // sees them immediately, before the liveQuery's first async tick fires.
+    try {
+      const [memberRows, expenseRows, settlementRows] = await Promise.all([
+        db().members.where('groupId').equals(groupId).toArray(),
+        db().expenses.where('groupId').equals(groupId).reverse().sortBy('date'),
+        db().settlements.where('groupId').equals(groupId).reverse().sortBy('date'),
+      ]);
+      const nextMembers = new Map(get().membersByGroup);
+      nextMembers.set(groupId, memberRows);
+      const nextExpenses = new Map(get().expensesByGroup);
+      nextExpenses.set(groupId, expenseRows);
+      const nextSettlements = new Map(get().settlementsByGroup);
+      nextSettlements.set(groupId, settlementRows);
+      set({
+        membersByGroup: nextMembers,
+        expensesByGroup: nextExpenses,
+        settlementsByGroup: nextSettlements,
+      });
+    } catch (err) {
+      console.error('[PrivShare] Initial cache pull failed', err);
+    }
     if (!memberSubs.has(groupId)) {
       memberSubs.set(
         groupId,

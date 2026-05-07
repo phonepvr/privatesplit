@@ -14,6 +14,7 @@ import { BottomNav } from './shell/BottomNav';
 import { UpdateBanner } from './UpdateBanner';
 import { InstallPrompt } from './InstallPrompt';
 import { installConsoleCapture } from '../core/diagnostics/log';
+import { ErrorBoundary } from './ErrorBoundary';
 
 type Modal = null | 'pair' | 'trash' | 'diagnostics';
 
@@ -78,7 +79,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <UpdateBanner />
-      {body}
+      <ErrorBoundary>{body}</ErrorBoundary>
       {!navHidden && <BottomNav />}
       <InstallPrompt />
     </div>

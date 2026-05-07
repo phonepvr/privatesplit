@@ -1,8 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Header } from '../../app/shell/Header';
 import { Button } from '../../ui/components/Button';
 import { Avatar } from '../../ui/components/Avatar';
-import { useGroups } from '../../stores/groups-store';
+import {
+  selectExpenses,
+  selectMembers,
+  selectSettlements,
+  useGroups,
+} from '../../stores/groups-store';
 import { useSession } from '../../stores/session-store';
 import { ExpenseEditor } from '../expenses/ExpenseEditor';
 import { SettlementEditor } from '../settlements/SettlementEditor';
@@ -20,9 +25,9 @@ interface Props {
 
 export function GroupDetail({ groupId, onBack }: Props) {
   const groups = useGroups((s) => s.groups);
-  const members = useGroups((s) => s.membersByGroup.get(groupId) ?? []);
-  const expenses = useGroups((s) => s.expensesByGroup.get(groupId) ?? []);
-  const settlements = useGroups((s) => s.settlementsByGroup.get(groupId) ?? []);
+  const members = useGroups(useMemo(() => selectMembers(groupId), [groupId]));
+  const expenses = useGroups(useMemo(() => selectExpenses(groupId), [groupId]));
+  const settlements = useGroups(useMemo(() => selectSettlements(groupId), [groupId]));
   const renameGroup = useGroups((s) => s.renameGroup);
   const archiveGroup = useGroups((s) => s.archiveGroup);
   const deleteGroup = useGroups((s) => s.deleteGroup);
@@ -43,11 +48,18 @@ export function GroupDetail({ groupId, onBack }: Props) {
   const [editing, setEditing] = useState<ExpenseCacheRow | null>(null);
   const [showMenu, setShowMenu] = useState(false);
 
+  // Ensure observers/subscriptions are attached even if the user navigates
+  // here before bootstrap's liveQuery has caught up to a freshly-created group.
+  const watchGroup = useGroups((s) => s.watchGroup);
+  useEffect(() => {
+    void watchGroup(groupId);
+  }, [groupId, watchGroup]);
+
   if (!group) {
     return (
       <div>
-        <Header title="Group not found" back={onBack} />
-        <p className="p-4 text-sm text-slate-500">This group has been deleted.</p>
+        <Header title="Loading…" back={onBack} />
+        <p className="p-4 text-sm text-slate-500">Opening group…</p>
       </div>
     );
   }

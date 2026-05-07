@@ -43,6 +43,24 @@ function pickColor(usedCount: number): string {
   return COLOR_PALETTE[usedCount % COLOR_PALETTE.length] ?? '#64748b';
 }
 
+// Stable empty array references so selectors don't return a new `[]` every
+// render (which would defeat zustand's Object.is comparison and force any
+// component reading the empty list to re-run effects on every store change).
+const EMPTY_MEMBERS: MemberCacheRow[] = [];
+const EMPTY_EXPENSES: ExpenseCacheRow[] = [];
+const EMPTY_SETTLEMENTS: SettlementCacheRow[] = [];
+
+export function selectMembers(groupId: string) {
+  return (s: GroupsState): MemberCacheRow[] => s.membersByGroup.get(groupId) ?? EMPTY_MEMBERS;
+}
+export function selectExpenses(groupId: string) {
+  return (s: GroupsState): ExpenseCacheRow[] => s.expensesByGroup.get(groupId) ?? EMPTY_EXPENSES;
+}
+export function selectSettlements(groupId: string) {
+  return (s: GroupsState): SettlementCacheRow[] =>
+    s.settlementsByGroup.get(groupId) ?? EMPTY_SETTLEMENTS;
+}
+
 interface GroupsState {
   groups: GroupRow[];
   membersByGroup: Map<string, MemberCacheRow[]>;
@@ -112,9 +130,18 @@ export const useGroups = create<GroupsState>((set, get) => ({
 
   watchGroup: async (groupId) => {
     if (get().hydratedGroupIds.has(groupId)) return;
+    // Mark as hydrated synchronously to prevent re-entrant attachment
+    // when bootstrap's liveQuery fires while hydrateGroupCache is awaiting.
+    const claimed = new Set(get().hydratedGroupIds);
+    claimed.add(groupId);
+    set({ hydratedGroupIds: claimed });
     const detacher = attachGroupObservers(groupId);
     get().detachers.set(groupId, detacher);
-    await hydrateGroupCache(groupId);
+    try {
+      await hydrateGroupCache(groupId);
+    } catch (err) {
+      console.error('[PrivShare] Initial hydration failed', err);
+    }
     if (!memberSubs.has(groupId)) {
       memberSubs.set(
         groupId,
@@ -155,9 +182,6 @@ export const useGroups = create<GroupsState>((set, get) => ({
         })
       );
     }
-    const next = new Set(get().hydratedGroupIds);
-    next.add(groupId);
-    set({ hydratedGroupIds: next });
   },
 
   unwatchGroup: (groupId) => {
@@ -191,6 +215,16 @@ export const useGroups = create<GroupsState>((set, get) => ({
       crdtAddMember(id, member);
     });
     await get().watchGroup(id);
+    // Inject the freshly hydrated row into local state so navigation can rely
+    // on it being present immediately, without waiting for Dexie's liveQuery
+    // to propagate the change on the next microtask.
+    const row = await db().groups.get(id);
+    if (row) {
+      const existing = get().groups;
+      if (!existing.some((g) => g.id === id)) {
+        set({ groups: [...existing, row] });
+      }
+    }
     return id;
   },
 

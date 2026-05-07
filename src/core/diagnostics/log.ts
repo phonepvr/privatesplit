@@ -55,14 +55,19 @@ export async function clearLogs(): Promise<void> {
   await db().diagnostics.clear();
 }
 
+let captureInstalled = false;
+
 export function installConsoleCapture(): void {
-  const orig = { warn: console.warn, error: console.error };
+  if (captureInstalled) return;
+  captureInstalled = true;
+  const origWarn = console.warn.bind(console);
+  const origError = console.error.bind(console);
   console.warn = (...args: unknown[]) => {
     void appendLog('warn', 'console', args.map(String).join(' '));
-    orig.warn(...args);
+    origWarn(...args);
   };
   console.error = (...args: unknown[]) => {
     void appendLog('error', 'console', args.map(String).join(' '));
-    orig.error(...args);
+    origError(...args);
   };
 }

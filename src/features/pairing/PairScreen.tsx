@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Header } from '../../app/shell/Header';
 import { Button } from '../../ui/components/Button';
 import { useGroups } from '../../stores/groups-store';
 import { useSession } from '../../stores/session-store';
 import { createAnswerSession, createOfferSession } from '../../core/pairing/handshake';
-import { attachSyncToChannel } from '../../core/sync/transport';
 import { newId } from '../../core/ids/ulid';
 import { getGroupDoc } from '../../core/crdt/group-doc';
 import { claimOrInsertMember } from '../../core/crdt/operations';
+import { getSession, registerSession } from '../../core/sync/peer-session';
 import { ConnectedPanel } from './SyncPill';
 
 const COLOR_SEED = ['#0ea5e9', '#f97316', '#10b981', '#a855f7', '#ef4444'];
@@ -30,26 +30,26 @@ export function PairScreen({ onBack }: Props) {
   const [status, setStatus] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const offerSessionRef = useRef<Awaited<ReturnType<typeof createOfferSession>> | null>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
   const answerAppliedRef = useRef(false);
   const joinStartedRef = useRef(false);
   const [connectedGroupId, setConnectedGroupId] = useState<string | null>(null);
 
-  useEffect(
-    () => () => {
-      try {
-        pcRef.current?.close();
-      } catch {
-        /* ignore */
-      }
-    },
-    []
-  );
+  // No on-unmount close: peer sessions live in the module-level manager so
+  // sync continues across screen navigation. The user explicitly disconnects
+  // via Profile → Sync → Disconnect or by closing the tab.
 
   async function startHost() {
     if (!identity || !groupId) return;
     const group = groups.find((g) => g.id === groupId);
     if (!group) return;
+    // Refuse to start a second pairing for a group that's already connected.
+    const already = getSession(groupId);
+    if (already && already.channel.readyState === 'open') {
+      setError('Already paired for this group. Disconnect first if you want to re-pair.');
+      setMode('connected');
+      setConnectedGroupId(groupId);
+      return;
+    }
     setError(null);
     setStatus('Building offer (gathering ICE candidates)…');
     try {
@@ -61,17 +61,20 @@ export function PairScreen({ onBack }: Props) {
         groupKeyB64: newId(),
       });
       offerSessionRef.current = session;
-      pcRef.current = session.pc;
       setOfferPayload(session.encodedOffer);
       setStatus(
         'Send this code to your partner. They paste it on their phone and send back an answer.'
       );
-      attachSyncToChannel(session.channel, groupId, 'host');
+      registerSession({
+        groupId,
+        pc: session.pc,
+        channel: session.channel,
+        role: 'host',
+      });
       session.channel.addEventListener('open', () => {
         setStatus('Connected. Syncing…');
         setConnectedGroupId(groupId);
         setMode('connected');
-        // Make sure the host's own member entry has a fingerprint claim.
         try {
           claimOrInsertMember(groupId, {
             displayName: identity.displayName,
@@ -130,7 +133,6 @@ export function PairScreen({ onBack }: Props) {
     joinStartedRef.current = true;
     try {
       const session = await createAnswerSession({ identity, encodedOffer: payload.trim() });
-      pcRef.current = session.pc;
       setAnswerPayload(session.encodedAnswer);
       setStatus('Send the answer code below back to the host.');
       session.channelPromise.then((channel) => {
@@ -149,15 +151,18 @@ export function PairScreen({ onBack }: Props) {
           });
           void useGroups.getState().watchGroup(targetGroup);
         }
-        attachSyncToChannel(channel, targetGroup, 'joiner');
+        registerSession({
+          groupId: targetGroup,
+          pc: session.pc,
+          channel,
+          role: 'joiner',
+          remoteFingerprint: session.receivedOffer.deviceFp,
+          remoteDisplayName: session.receivedOffer.displayName,
+        });
         channel.addEventListener('open', () => {
           setStatus('Connected. Syncing…');
           setConnectedGroupId(targetGroup);
           setMode('connected');
-          // After Yjs has had a chance to apply the host's diff (state-vector
-          // exchange happens on open), claim or insert our member entry. The
-          // small delay is just to let the first `update` frame land first;
-          // the operation is idempotent regardless.
           setTimeout(() => {
             try {
               claimOrInsertMember(targetGroup, {

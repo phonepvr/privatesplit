@@ -16,6 +16,7 @@ import { UpdateBanner } from './UpdateBanner';
 import { InstallPrompt } from './InstallPrompt';
 import { installConsoleCapture } from '../core/diagnostics/log';
 import { ErrorBoundary } from './ErrorBoundary';
+import { SyncIndicator } from './SyncIndicator';
 
 type Modal = null | 'pair' | 'trash' | 'diagnostics';
 
@@ -60,7 +61,13 @@ export default function App() {
   } else if (modal === 'diagnostics') {
     body = <Diagnostics onBack={() => setModal(null)} />;
   } else if (openGroupId) {
-    body = <GroupDetail groupId={openGroupId} onBack={() => setOpenGroupId(null)} />;
+    body = (
+      <GroupDetail
+        groupId={openGroupId}
+        onBack={() => setOpenGroupId(null)}
+        onOpenPair={() => setModal('pair')}
+      />
+    );
   } else if (tab === 'groups') {
     body = <GroupsList onOpenGroup={setOpenGroupId} />;
   } else if (tab === 'activity') {
@@ -82,6 +89,15 @@ export default function App() {
       <UpdateBanner />
       <ErrorBoundary>{body}</ErrorBoundary>
       {!navHidden && <BottomNav />}
+      {!navHidden && (
+        <SyncIndicator
+          onClick={() => {
+            setModal(null);
+            setOpenGroupId(null);
+            useUi.getState().setTab('profile');
+          }}
+        />
+      )}
       <InstallPrompt />
       <BackupPrompt
         onOpenProfile={() => {

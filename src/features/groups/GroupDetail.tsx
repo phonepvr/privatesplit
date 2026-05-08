@@ -18,14 +18,16 @@ import { exportGroupCsv, downloadCsv } from '../export-import/csv';
 import { exportGroupAsBlob } from '../export-import/privshare';
 import { SyncPill } from '../pairing/SyncPill';
 import { PassphraseModal } from '../../ui/components/PassphraseModal';
+import { getSession, nudge } from '../../core/sync/peer-session';
 import type { ExpenseCacheRow } from '../../core/storage/db';
 
 interface Props {
   groupId: string;
   onBack: () => void;
+  onOpenPair: () => void;
 }
 
-export function GroupDetail({ groupId, onBack }: Props) {
+export function GroupDetail({ groupId, onBack, onOpenPair }: Props) {
   const groups = useGroups((s) => s.groups);
   const members = useGroups(useMemo(() => selectMembers(groupId), [groupId]));
   const expenses = useGroups(useMemo(() => selectExpenses(groupId), [groupId]));
@@ -166,10 +168,11 @@ export function GroupDetail({ groupId, onBack }: Props) {
             settlements={settlements}
             currency={group.currency}
           />
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => setShowSettle(true)}>
               Settle up
             </Button>
+            <SyncAction groupId={groupId} onOpenPair={onOpenPair} />
           </div>
         </div>
 
@@ -339,5 +342,28 @@ export function GroupDetail({ groupId, onBack }: Props) {
         onClose={() => setShowGroupExport(false)}
       />
     </div>
+  );
+}
+
+function SyncAction({ groupId, onOpenPair }: { groupId: string; onOpenPair: () => void }) {
+  const status = useGroups((s) => s.syncStatusByGroup.get(groupId) ?? 'idle');
+  const session = getSession(groupId);
+  const live = !!session && session.channel.readyState === 'open';
+  if (live) {
+    return (
+      <Button
+        variant="ghost"
+        onClick={() => {
+          nudge(groupId);
+        }}
+      >
+        ↻ Sync now
+      </Button>
+    );
+  }
+  return (
+    <Button variant="secondary" onClick={onOpenPair}>
+      {status === 'closed' ? 'Reconnect' : 'Pair a device'}
+    </Button>
   );
 }

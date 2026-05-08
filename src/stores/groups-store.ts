@@ -121,6 +121,8 @@ export const useGroups = create<GroupsState>((set, get) => {
       .sort(compareByDateDesc);
 
     const idMeta = handle.meta.get('id') as string | undefined;
+    const cats = handle.meta.get('categories') as { toArray?: () => string[] } | undefined;
+    const categories = cats?.toArray ? cats.toArray() : undefined;
     const groupRow: GroupRow | null = idMeta
       ? {
           id: idMeta,
@@ -130,6 +132,7 @@ export const useGroups = create<GroupsState>((set, get) => {
           ...(handle.meta.get('archivedAt')
             ? { archivedAt: handle.meta.get('archivedAt') as string }
             : {}),
+          ...(categories ? { categories } : {}),
         }
       : null;
 

@@ -36,12 +36,18 @@ export function computeBalances(
     perMember[e.paidByMemberId] = (perMember[e.paidByMemberId] ?? 0) + e.amountMinor;
     let shares: ParticipantShare[];
     if (e.splitType === 'equal') {
+      // Re-derive at read time so legacy expenses without exactShares still
+      // compute correctly.
       shares = splitEqual({
         totalMinor: e.amountMinor,
         participants: e.participants,
         payerMemberId: e.paidByMemberId,
       });
     } else {
+      // For exact / percentage / shares / adjustments the resolved per-member
+      // amounts are persisted in exactShares at creation time (the editor
+      // computes them via splitPercentage / splitShares / splitAdjustments
+      // before saving). Reading is then a simple sum.
       const exact = e.exactShares ?? [];
       const v = validateExactSplit({ totalMinor: e.amountMinor, shares: exact });
       if (!v.ok) continue;

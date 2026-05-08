@@ -17,6 +17,7 @@ export interface GroupRow {
   createdAt: string;
   archivedAt?: string;
   deletedAt?: string;
+  categories?: string[];
 }
 
 export interface MemberCacheRow {
@@ -37,9 +38,10 @@ export interface ExpenseCacheRow {
   category: string;
   notes?: string;
   paidByMemberId: string;
-  splitType: 'equal' | 'exact';
+  splitType: 'equal' | 'exact' | 'percentage' | 'shares' | 'adjustments';
   participants: string[];
   exactShares?: { memberId: string; amountMinor: number }[];
+  history?: { field: string; before: unknown; after: unknown; at: string }[];
   createdByFingerprint: string;
   createdAt: string;
   updatedAt: string;

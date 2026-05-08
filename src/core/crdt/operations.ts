@@ -21,6 +21,51 @@ export function initGroupDoc(input: InitGroupInput): void {
       handle.meta.set('createdAt', new Date().toISOString());
       handle.meta.set('createdByFingerprint', input.createdByFingerprint);
     }
+    if (!handle.meta.has('categories')) {
+      const cats = new Y.Array<string>();
+      cats.insert(0, ['Food', 'Travel', 'Accommodation', 'Shopping', 'Other']);
+      handle.meta.set('categories', cats);
+    }
+  });
+}
+
+export function addCategory(groupId: string, name: string): void {
+  const handle = getGroupDoc(groupId);
+  handle.doc.transact(() => {
+    let cats = handle.meta.get('categories') as Y.Array<string> | undefined;
+    if (!cats) {
+      cats = new Y.Array<string>();
+      handle.meta.set('categories', cats);
+    }
+    if (!cats.toArray().includes(name)) cats.push([name]);
+  });
+}
+
+export function renameCategory(groupId: string, oldName: string, newName: string): void {
+  const handle = getGroupDoc(groupId);
+  handle.doc.transact(() => {
+    const cats = handle.meta.get('categories') as Y.Array<string> | undefined;
+    if (!cats) return;
+    const arr = cats.toArray();
+    const idx = arr.indexOf(oldName);
+    if (idx < 0) return;
+    cats.delete(idx, 1);
+    cats.insert(idx, [newName]);
+    // Migrate existing expenses to the new label.
+    for (let i = 0; i < handle.expenses.length; i += 1) {
+      const e = handle.expenses.get(i);
+      if (e.get('category') === oldName) e.set('category', newName);
+    }
+  });
+}
+
+export function removeCategory(groupId: string, name: string): void {
+  const handle = getGroupDoc(groupId);
+  handle.doc.transact(() => {
+    const cats = handle.meta.get('categories') as Y.Array<string> | undefined;
+    if (!cats) return;
+    const idx = cats.toArray().indexOf(name);
+    if (idx >= 0) cats.delete(idx, 1);
   });
 }
 
@@ -135,7 +180,7 @@ export interface AddExpenseInput {
   category: string;
   notes?: string;
   paidByMemberId: string;
-  splitType: 'equal' | 'exact';
+  splitType: 'equal' | 'exact' | 'percentage' | 'shares' | 'adjustments';
   participants: ReadonlyArray<string>;
   exactShares?: ReadonlyArray<ParticipantShare>;
   createdByFingerprint: string;
@@ -159,7 +204,11 @@ export function addExpense(groupId: string, input: AddExpenseInput): string {
     const ps = new Y.Array<string>();
     ps.insert(0, [...input.participants]);
     split.set('participants', ps);
-    if (input.splitType === 'exact' && input.exactShares) {
+    // For any non-equal split type the editor pre-computes per-member shares
+    // and stores them under `amounts`. balances.ts reads them as the canonical
+    // truth. The `type` field is preserved so future edits remember what the
+    // user originally entered.
+    if (input.splitType !== 'equal' && input.exactShares) {
       const amounts = new Y.Map<number>();
       for (const s of input.exactShares) amounts.set(s.memberId, s.amountMinor);
       split.set('amounts', amounts);
@@ -182,12 +231,37 @@ export function updateExpense(
   handle.doc.transact(() => {
     const e = findById(handle.expenses, expenseId);
     if (!e) return;
-    if (patch.description !== undefined) e.set('description', patch.description);
-    if (patch.amountMinor !== undefined) e.set('amountMinor', patch.amountMinor);
-    if (patch.date !== undefined) e.set('date', patch.date);
-    if (patch.category !== undefined) e.set('category', patch.category);
-    if (patch.notes !== undefined) e.set('notes', patch.notes);
-    if (patch.paidByMemberId !== undefined) e.set('paidByMemberId', patch.paidByMemberId);
+    const history = (e.get('history') as Y.Array<unknown> | undefined) ?? new Y.Array();
+    if (!e.get('history')) e.set('history', history);
+    const at = new Date().toISOString();
+    const log = (field: string, before: unknown, after: unknown) => {
+      if (before === after) return;
+      history.push([{ field, before, after, at }]);
+    };
+    if (patch.description !== undefined) {
+      log('description', e.get('description'), patch.description);
+      e.set('description', patch.description);
+    }
+    if (patch.amountMinor !== undefined) {
+      log('amountMinor', e.get('amountMinor'), patch.amountMinor);
+      e.set('amountMinor', patch.amountMinor);
+    }
+    if (patch.date !== undefined) {
+      log('date', e.get('date'), patch.date);
+      e.set('date', patch.date);
+    }
+    if (patch.category !== undefined) {
+      log('category', e.get('category'), patch.category);
+      e.set('category', patch.category);
+    }
+    if (patch.notes !== undefined) {
+      log('notes', e.get('notes') ?? '', patch.notes);
+      e.set('notes', patch.notes);
+    }
+    if (patch.paidByMemberId !== undefined) {
+      log('paidByMemberId', e.get('paidByMemberId'), patch.paidByMemberId);
+      e.set('paidByMemberId', patch.paidByMemberId);
+    }
     if (patch.splitType || patch.participants || patch.exactShares) {
       const split = (e.get('split') as Y.Map<unknown>) ?? new Y.Map<unknown>();
       if (patch.splitType) split.set('type', patch.splitType);
@@ -213,6 +287,18 @@ export function deleteExpense(groupId: string, expenseId: string): void {
   const handle = getGroupDoc(groupId);
   handle.doc.transact(() => {
     const e = findById(handle.expenses, expenseId);
+    if (e) {
+      const history = (e.get('history') as Y.Array<unknown> | undefined) ?? new Y.Array();
+      if (!e.get('history')) e.set('history', history);
+      history.push([
+        {
+          field: 'deletedAt',
+          before: null,
+          after: new Date().toISOString(),
+          at: new Date().toISOString(),
+        },
+      ]);
+    }
     if (e) e.set('deletedAt', new Date().toISOString());
   });
 }

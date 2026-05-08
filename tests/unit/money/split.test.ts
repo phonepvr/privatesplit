@@ -137,3 +137,112 @@ describe('validateExactSplit', () => {
     expect(v.ok).toBe(false);
   });
 });
+
+import { splitAdjustments, splitPercentage, splitShares } from '../../../src/core/money/split';
+
+describe('splitPercentage', () => {
+  it('splits 1000 by 50/50', () => {
+    const out = splitPercentage({
+      totalMinor: 1000,
+      payerMemberId: 'a',
+      entries: [
+        { memberId: 'a', pct: 50 },
+        { memberId: 'b', pct: 50 },
+      ],
+    });
+    expect(out.reduce((s, sh) => s + sh.amountMinor, 0)).toBe(1000);
+  });
+  it('absorbs rounding into payer', () => {
+    // 100 / 3 -> not exact. Payer gets the leftover paise.
+    const out = splitPercentage({
+      totalMinor: 100,
+      payerMemberId: 'a',
+      entries: [
+        { memberId: 'a', pct: 33.33 },
+        { memberId: 'b', pct: 33.33 },
+        { memberId: 'c', pct: 33.34 },
+      ],
+    });
+    expect(out.reduce((s, sh) => s + sh.amountMinor, 0)).toBe(100);
+  });
+  it('rejects when percentages do not sum to 100', () => {
+    expect(() =>
+      splitPercentage({
+        totalMinor: 100,
+        payerMemberId: 'a',
+        entries: [
+          { memberId: 'a', pct: 50 },
+          { memberId: 'b', pct: 40 },
+        ],
+      })
+    ).toThrow();
+  });
+});
+
+describe('splitShares', () => {
+  it('splits 1000 by 1:2 weights', () => {
+    const out = splitShares({
+      totalMinor: 1000,
+      payerMemberId: 'a',
+      entries: [
+        { memberId: 'a', weight: 1 },
+        { memberId: 'b', weight: 2 },
+      ],
+    });
+    expect(out.reduce((s, sh) => s + sh.amountMinor, 0)).toBe(1000);
+    expect(out.find((sh) => sh.memberId === 'b')!.amountMinor).toBeGreaterThan(
+      out.find((sh) => sh.memberId === 'a')!.amountMinor
+    );
+  });
+  it('rejects negative weights', () => {
+    expect(() =>
+      splitShares({
+        totalMinor: 100,
+        payerMemberId: 'a',
+        entries: [
+          { memberId: 'a', weight: -1 },
+          { memberId: 'b', weight: 2 },
+        ],
+      })
+    ).toThrow();
+  });
+  it('rejects all-zero weights', () => {
+    expect(() =>
+      splitShares({
+        totalMinor: 100,
+        payerMemberId: 'a',
+        entries: [
+          { memberId: 'a', weight: 0 },
+          { memberId: 'b', weight: 0 },
+        ],
+      })
+    ).toThrow();
+  });
+});
+
+describe('splitAdjustments', () => {
+  it('applies deltas on top of equal split', () => {
+    const out = splitAdjustments({
+      totalMinor: 1000,
+      payerMemberId: 'a',
+      participants: ['a', 'b'],
+      adjustments: [
+        { memberId: 'a', deltaMinor: -100 },
+        { memberId: 'b', deltaMinor: 100 },
+      ],
+    });
+    expect(out.reduce((s, sh) => s + sh.amountMinor, 0)).toBe(1000);
+    expect(out.find((sh) => sh.memberId === 'a')!.amountMinor).toBe(400);
+    expect(out.find((sh) => sh.memberId === 'b')!.amountMinor).toBe(600);
+  });
+  it('rejects when deltas do not net to zero', () => {
+    expect(() =>
+      splitAdjustments({
+        totalMinor: 1000,
+        payerMemberId: 'a',
+        participants: ['a', 'b'],
+        adjustments: [{ memberId: 'a', deltaMinor: 50 }],
+      })
+    ).toThrow();
+  });
+});

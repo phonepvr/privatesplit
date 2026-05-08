@@ -17,10 +17,11 @@ export function projectMember(groupId: string, m: Y.Map<unknown>): MemberCacheRo
 
 export function projectExpense(groupId: string, e: Y.Map<unknown>): ExpenseCacheRow {
   const split = e.get('split') as Y.Map<unknown> | undefined;
-  const splitType = (split?.get('type') as 'equal' | 'exact') ?? 'equal';
+  const splitType =
+    (split?.get('type') as 'equal' | 'exact' | 'percentage' | 'shares' | 'adjustments') ?? 'equal';
   const participants = (split?.get('participants') as Y.Array<string> | undefined)?.toArray() ?? [];
   let exactShares: { memberId: string; amountMinor: number }[] | undefined;
-  if (splitType === 'exact') {
+  if (splitType !== 'equal') {
     const amounts = split?.get('amounts') as Y.Map<number> | undefined;
     if (amounts) {
       exactShares = participants.map((memberId) => ({
@@ -46,6 +47,10 @@ export function projectExpense(groupId: string, e: Y.Map<unknown>): ExpenseCache
   const notes = e.get('notes') as string | undefined;
   if (notes) row.notes = notes;
   if (exactShares) row.exactShares = exactShares;
+  const historyArr = e.get('history') as Y.Array<unknown> | undefined;
+  if (historyArr && historyArr.length > 0) {
+    row.history = historyArr.toArray() as NonNullable<ExpenseCacheRow['history']>;
+  }
   const deletedAt = e.get('deletedAt') as string | undefined;
   if (deletedAt) row.deletedAt = deletedAt;
   return row;

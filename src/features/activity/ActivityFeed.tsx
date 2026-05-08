@@ -24,6 +24,7 @@ export function ActivityFeed() {
       amountMinor: number;
       payerName?: string;
       payerColor?: string;
+      history?: { field: string; before: unknown; after: unknown; at: string }[];
     }[] = [];
     for (const g of groups) {
       if (groupFilter !== 'all' && groupFilter !== g.id) continue;
@@ -46,6 +47,7 @@ export function ActivityFeed() {
           item.payerName = payer.name;
           item.payerColor = payer.color;
         }
+        if (e.history && e.history.length > 0) item.history = e.history;
         out.push(item);
       }
       for (const s of settlementsByGroup.get(g.id) ?? []) {
@@ -94,24 +96,46 @@ export function ActivityFeed() {
             {items.map((it) => (
               <li
                 key={`${it.kind}-${it.id}`}
-                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3"
+                className="rounded-xl border border-slate-200 bg-white p-3"
               >
-                {it.kind === 'expense' ? (
-                  <Avatar name={it.payerName ?? '?'} color={it.payerColor} size="sm" />
-                ) : (
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-base">
-                    ↻
-                  </span>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="truncate text-sm font-medium">{it.title}</p>
-                  <p className="text-xs text-slate-500">
-                    {it.sub} · {it.date}
+                <div className="flex items-center gap-3">
+                  {it.kind === 'expense' ? (
+                    <Avatar name={it.payerName ?? '?'} color={it.payerColor} size="sm" />
+                  ) : (
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-base">
+                      ↻
+                    </span>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-sm font-medium">{it.title}</p>
+                    <p className="text-xs text-slate-500">
+                      {it.sub} · {it.date}
+                    </p>
+                  </div>
+                  <p
+                    className={`text-sm font-semibold ${it.amountMinor < 0 ? 'text-emerald-700' : ''}`}
+                  >
+                    {formatMinor(it.amountMinor, it.currency as 'INR')}
                   </p>
                 </div>
-                <p className="text-sm font-semibold">
-                  {formatMinor(it.amountMinor, it.currency as 'INR')}
-                </p>
+                {it.history && it.history.length > 0 && (
+                  <details className="mt-2 text-xs">
+                    <summary className="cursor-pointer text-slate-500">
+                      Show edit history ({it.history.length})
+                    </summary>
+                    <ul className="mt-1 space-y-1 border-l-2 border-slate-200 pl-3">
+                      {it.history.map((h, i) => (
+                        <li key={i} className="text-[11px] text-slate-600">
+                          <span className="font-mono text-slate-400">
+                            {new Date(h.at).toLocaleString()}
+                          </span>{' '}
+                          · {h.field}: <span className="line-through">{String(h.before)}</span> →{' '}
+                          <span className="text-slate-900">{String(h.after)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </li>
             ))}
           </ul>

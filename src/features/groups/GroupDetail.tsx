@@ -12,6 +12,7 @@ import { useSession } from '../../stores/session-store';
 import { ExpenseEditor } from '../expenses/ExpenseEditor';
 import { SettlementEditor } from '../settlements/SettlementEditor';
 import { MembersEditor } from '../members/MembersEditor';
+import { CategoriesEditor } from './CategoriesEditor';
 import { BalanceLine } from '../balances/BalanceLine';
 import { formatMinor } from '../../core/money/format';
 import { exportGroupCsv, downloadCsv } from '../export-import/csv';
@@ -48,6 +49,7 @@ export function GroupDetail({ groupId, onBack, onOpenPair }: Props) {
 
   const [showAdd, setShowAdd] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [showCategories, setShowCategories] = useState(false);
   const [showSettle, setShowSettle] = useState(false);
   const [editing, setEditing] = useState<ExpenseCacheRow | null>(null);
   const [showMenu, setShowMenu] = useState(false);
@@ -102,6 +104,15 @@ export function GroupDetail({ groupId, onBack, onOpenPair }: Props) {
                 }}
               >
                 Members ({members.filter((m) => !m.removedAt).length})
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowMenu(false);
+                  setShowCategories(true);
+                }}
+              >
+                Categories
               </Button>
               <Button
                 variant="secondary"
@@ -225,13 +236,26 @@ export function GroupDetail({ groupId, onBack, onOpenPair }: Props) {
                       <div className="flex-1 min-w-0">
                         <p className="truncate text-sm font-medium text-slate-900">
                           {e.description}
+                          {e.amountMinor < 0 && (
+                            <span className="ml-2 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700">
+                              Refund
+                            </span>
+                          )}
                         </p>
                         <p className="text-xs text-slate-500">
                           {payer?.name ?? '?'} paid · {e.date} · {e.category}
+                          {e.splitType !== 'equal' && (
+                            <>
+                              {' '}
+                              · <span className="capitalize">{e.splitType}</span>
+                            </>
+                          )}
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-semibold">
+                        <p
+                          className={`text-sm font-semibold ${e.amountMinor < 0 ? 'text-emerald-700' : ''}`}
+                        >
                           {formatMinor(e.amountMinor, group.currency)}
                         </p>
                         <button
@@ -305,11 +329,18 @@ export function GroupDetail({ groupId, onBack, onOpenPair }: Props) {
         groupId={groupId}
         currency={group.currency}
         members={members}
+        categories={group.categories ?? []}
         initial={editing}
         onClose={() => {
           setShowAdd(false);
           setEditing(null);
         }}
+      />
+      <CategoriesEditor
+        open={showCategories}
+        groupId={groupId}
+        categories={group.categories ?? []}
+        onClose={() => setShowCategories(false)}
       />
       <SettlementEditor
         open={showSettle}

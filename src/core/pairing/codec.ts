@@ -7,6 +7,10 @@ export interface OfferEnvelope {
   sdp: string;
   deviceFp: string;
   displayName: string;
+  // Pairing token persisted on both sides after first connect so future
+  // reconnects can route SDPs through the signaling relay without repeating
+  // the pairing wizard. 32 random bytes, base64.
+  pairingId?: string;
   groupInvite?: {
     groupId: string;
     groupName: string;

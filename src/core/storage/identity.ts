@@ -63,3 +63,45 @@ export async function updateDisplayName(name: string): Promise<void> {
 export function clearIdentityCache(): void {
   cached = null;
 }
+
+/**
+ * Adopt an identity from a restored device backup. Does NOT generate a new
+ * keypair — uses the JWKs from the backup so the restored device keeps the
+ * same fingerprint and signs subsequent updates with the same private key.
+ */
+export async function adoptIdentity(args: {
+  displayName: string;
+  fingerprint: string;
+  publicKeyJwk: JsonWebKey;
+  privateKeyJwk: JsonWebKey;
+}): Promise<LoadedIdentity> {
+  const publicKey = await crypto.subtle.importKey(
+    'jwk',
+    args.publicKeyJwk,
+    { name: 'Ed25519' },
+    true,
+    ['verify']
+  );
+  const privateKey = await crypto.subtle.importKey(
+    'jwk',
+    args.privateKeyJwk,
+    { name: 'Ed25519' },
+    false,
+    ['sign']
+  );
+  await db().identity.put({
+    id: 'self',
+    displayName: args.displayName,
+    fingerprint: args.fingerprint,
+    publicKeyJwk: args.publicKeyJwk,
+    privateKeyJwk: args.privateKeyJwk,
+    createdAt: new Date().toISOString(),
+  });
+  cached = {
+    displayName: args.displayName,
+    fingerprint: args.fingerprint,
+    publicKey,
+    privateKey,
+  };
+  return cached;
+}

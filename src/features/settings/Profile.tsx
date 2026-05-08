@@ -11,6 +11,7 @@ import { exportDeviceAsBlob, importDeviceBackupFile } from '../export-import/dev
 import { PeersList } from '../pairing/PeersList';
 import { PassphraseModal } from '../../ui/components/PassphraseModal';
 import { PrivacySummary } from './PrivacySummary';
+import { SyncSettings } from './SyncSettings';
 
 interface Props {
   onOpenPair: () => void;
@@ -227,6 +228,8 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
           }}
           onClose={() => setImportPassphrase(null)}
         />
+
+        <SyncSettings />
 
         <PrivacySummary />
 

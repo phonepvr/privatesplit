@@ -8,18 +8,23 @@ import {
   subscribeSessions,
   type ActivePeerSession,
 } from '../../core/sync/peer-session';
+import { reconnectWithPeer } from '../../core/sync/reconnect';
+import { useSession } from '../../stores/session-store';
 
 interface Props {
   onReconnect: () => void;
 }
 
 export function PeersList({ onReconnect }: Props) {
+  const identity = useSession((s) => s.identity);
   const [peers, setPeers] = useState<PeerRow[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActivePeerSession[]>(() => listSessions());
+  const [busyFp, setBusyFp] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void db().peers.toArray().then(setPeers);
-  }, []);
+  }, [activeSessions]);
 
   useEffect(() => {
     setActiveSessions(listSessions());
@@ -32,6 +37,31 @@ export function PeersList({ onReconnect }: Props) {
     if (s.remoteFingerprint) liveByFingerprint.set(s.remoteFingerprint, s);
   }
 
+  async function tryReconnect(p: PeerRow) {
+    if (!identity || busyFp) return;
+    setError(null);
+    if (!p.pairingId || !p.sharedKeyB64 || p.sharedGroupIds.length === 0) {
+      // Old-style peer without persistent credentials: full pair flow.
+      onReconnect();
+      return;
+    }
+    setBusyFp(p.fingerprint);
+    try {
+      const attempt = await reconnectWithPeer(identity, p, p.sharedGroupIds[0]!);
+      await attempt.done;
+    } catch (err) {
+      const msg = String((err as Error).message ?? err);
+      if (msg === 'relay-disabled') {
+        // User has disabled the relay; fall back to manual pair.
+        onReconnect();
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setBusyFp(null);
+    }
+  }
+
   if (peers.length === 0 && activeSessions.length === 0) {
     return (
       <p className="text-xs text-slate-500">
@@ -40,44 +70,59 @@ export function PeersList({ onReconnect }: Props) {
     );
   }
   return (
-    <ul className="space-y-2">
-      {peers.map((p) => {
-        const live = liveByFingerprint.get(p.fingerprint);
-        return (
-          <li
-            key={p.fingerprint}
-            className="flex items-center gap-3 rounded-lg border border-slate-200 p-3"
-          >
-            <Avatar name={p.displayName} size="sm" />
-            <div className="flex-1 min-w-0">
-              <p className="truncate text-sm font-medium">{p.displayName}</p>
-              <p className="text-xs text-slate-500">
-                {live ? (
-                  <span className="text-emerald-700">Connected now</span>
-                ) : (
-                  <>Last seen {p.lastSeenAt ? humanWhen(p.lastSeenAt) : 'never'}</>
-                )}{' '}
-                · fp {p.fingerprint}
-              </p>
-            </div>
-            {live ? (
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  closeSession(live.groupId);
-                }}
-              >
-                Disconnect
-              </Button>
-            ) : (
-              <Button variant="secondary" onClick={onReconnect}>
-                Reconnect
-              </Button>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <div>
+      {error && <p className="mb-2 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
+      <ul className="space-y-2">
+        {peers.map((p) => {
+          const live = liveByFingerprint.get(p.fingerprint);
+          const reconnectable = !!p.pairingId && !!p.sharedKeyB64 && p.sharedGroupIds.length > 0;
+          return (
+            <li
+              key={p.fingerprint}
+              className="flex items-center gap-3 rounded-lg border border-slate-200 p-3"
+            >
+              <Avatar name={p.displayName} size="sm" />
+              <div className="flex-1 min-w-0">
+                <p className="truncate text-sm font-medium">{p.displayName}</p>
+                <p className="text-xs text-slate-500">
+                  {live ? (
+                    <span className="text-emerald-700">Connected now</span>
+                  ) : (
+                    <>Last seen {p.lastSeenAt ? humanWhen(p.lastSeenAt) : 'never'}</>
+                  )}{' '}
+                  · fp {p.fingerprint}
+                </p>
+              </div>
+              {live ? (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    closeSession(live.groupId);
+                  }}
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  disabled={busyFp === p.fingerprint}
+                  onClick={() => {
+                    if (reconnectable) void tryReconnect(p);
+                    else onReconnect();
+                  }}
+                >
+                  {busyFp === p.fingerprint
+                    ? 'Connecting…'
+                    : reconnectable
+                      ? 'Reconnect'
+                      : 'Re-pair'}
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

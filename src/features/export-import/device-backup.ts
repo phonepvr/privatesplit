@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import { db } from '../../core/storage/db';
+import { db, type PeerRow } from '../../core/storage/db';
 import { getGroupDoc } from '../../core/crdt/group-doc';
 import { base64ToBytes, bytesToBase64, exportPublicKey, signBytes } from '../../core/crypto/keys';
 import {
@@ -8,11 +8,13 @@ import {
   isEncryptedEnvelope,
   type EncryptedEnvelope,
 } from '../../core/crypto/passphrase';
-import type { LoadedIdentity } from '../../core/storage/identity';
+import { adoptIdentity, type LoadedIdentity } from '../../core/storage/identity';
 import { useGroups } from '../../stores/groups-store';
 
 export const DEVICE_BACKUP_FORMAT = 'privshare-device-backup';
-export const DEVICE_BACKUP_VERSION = 1;
+// v2: backup file now contains the wrapped private key + persisted peers so
+// a restore on a clean device produces an identical, paired install.
+export const DEVICE_BACKUP_VERSION = 2;
 
 interface BackupGroup {
   groupId: string;
@@ -31,8 +33,10 @@ export interface DeviceBackupFile {
     displayName: string;
     fingerprint: string;
     publicKeyJwk: JsonWebKey;
+    privateKeyJwk?: JsonWebKey; // present in v2; absent in legacy v1 backups
   };
   groups: BackupGroup[];
+  peers?: PeerRow[]; // v2: paired peer credentials so reconnect just works
   bundleSha256B64: string;
   signatureB64: string;
 }
@@ -62,7 +66,17 @@ export async function exportDeviceAsBlob(
   }
 
   const publicKeyJwk = await crypto.subtle.exportKey('jwk', identity.publicKey);
+  // The Ed25519 private key only exports as JWK if it was created with
+  // extractable=true (which we do in createIdentity). It's already protected
+  // by the outer passphrase envelope.
+  let privateKeyJwk: JsonWebKey | undefined;
+  try {
+    privateKeyJwk = await crypto.subtle.exportKey('jwk', identity.privateKey);
+  } catch {
+    privateKeyJwk = undefined;
+  }
   const rawPub = await exportPublicKey(identity.publicKey);
+  const peers = await db().peers.toArray();
 
   const bundleBytes = concatStrings([
     DEVICE_BACKUP_FORMAT,
@@ -86,8 +100,10 @@ export async function exportDeviceAsBlob(
       displayName: identity.displayName,
       fingerprint: identity.fingerprint,
       publicKeyJwk,
+      ...(privateKeyJwk ? { privateKeyJwk } : {}),
     },
     groups: backupGroups,
+    peers,
     bundleSha256B64: bytesToBase64(sha),
     signatureB64: bytesToBase64(sig),
   };
@@ -101,6 +117,7 @@ export interface DeviceImportResult {
   importedGroupCount: number;
   exportedByDisplayName?: string;
   exportedByFingerprint?: string;
+  identityAdopted?: boolean;
 }
 
 export async function importDeviceBackupFile(
@@ -134,17 +151,59 @@ export async function importDeviceBackupFile(
   } else {
     parsed = raw as DeviceBackupFile;
   }
-  if (parsed.format !== DEVICE_BACKUP_FORMAT || parsed.v !== DEVICE_BACKUP_VERSION) {
+  if (parsed.format !== DEVICE_BACKUP_FORMAT) {
     return {
       ok: false,
-      reason: `Unsupported format/version (${parsed.format}/${parsed.v})`,
+      reason: `Unsupported format (${parsed.format})`,
+      importedGroupCount: 0,
+    };
+  }
+  // Accept v1 (legacy) and v2; v1 simply lacks the private key + peers fields.
+  if (parsed.v !== 1 && parsed.v !== DEVICE_BACKUP_VERSION) {
+    return {
+      ok: false,
+      reason: `Unsupported version (${parsed.v})`,
       importedGroupCount: 0,
     };
   }
 
+  // If the local install has no identity yet AND the backup carries one with
+  // a private key, adopt it. This is what the restore-first onboarding path
+  // relies on so a restored device keeps the same fingerprint.
+  let identityAdopted = false;
+  const existingIdentity = await db().identity.get('self');
+  if (
+    !existingIdentity &&
+    parsed.identity?.privateKeyJwk &&
+    parsed.identity.publicKeyJwk &&
+    parsed.identity.fingerprint &&
+    parsed.identity.displayName
+  ) {
+    try {
+      await adoptIdentity({
+        displayName: parsed.identity.displayName,
+        fingerprint: parsed.identity.fingerprint,
+        publicKeyJwk: parsed.identity.publicKeyJwk,
+        privateKeyJwk: parsed.identity.privateKeyJwk,
+      });
+      identityAdopted = true;
+    } catch (err) {
+      console.error('[PrivShare] adoptIdentity failed', err);
+    }
+  }
+
+  // Restore paired peer credentials so reconnects skip the wizard.
+  if (parsed.peers && parsed.peers.length > 0) {
+    try {
+      await db().peers.bulkPut(parsed.peers);
+    } catch (err) {
+      console.error('[PrivShare] peer restore failed', err);
+    }
+  }
+
   // Apply each group's Yjs update. The CRDT semantics merge into existing
   // group docs (if a doc with the same groupId already exists locally), or
-  // create a fresh one if not. We do NOT replace the local identity.
+  // create a fresh one if not.
   let imported = 0;
   for (const g of parsed.groups) {
     const payload = base64ToBytes(g.payloadB64);
@@ -167,6 +226,7 @@ export async function importDeviceBackupFile(
     importedGroupCount: imported,
     exportedByDisplayName: parsed.exportedByDisplayName,
     exportedByFingerprint: parsed.exportedByFingerprint,
+    ...(identityAdopted ? { identityAdopted: true } : {}),
   };
   return result;
 }

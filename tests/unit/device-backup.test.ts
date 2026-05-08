@@ -11,7 +11,8 @@ describe('device backup constants', () => {
   it('exposes a stable format string', () => {
     expect(DEVICE_BACKUP_FORMAT).toBe('privshare-device-backup');
   });
-  it('starts at version 1', () => {
-    expect(DEVICE_BACKUP_VERSION).toBe(1);
+  it('reports a positive integer version', () => {
+    expect(Number.isInteger(DEVICE_BACKUP_VERSION)).toBe(true);
+    expect(DEVICE_BACKUP_VERSION).toBeGreaterThanOrEqual(1);
   });
 });

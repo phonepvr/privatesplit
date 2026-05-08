@@ -66,6 +66,13 @@ export interface PeerRow {
   trustedAt: string;
   lastSeenAt?: string;
   sharedGroupIds: string[];
+  // Persistent pairing credentials introduced in round 5. These let the two
+  // devices recognise each other on every reconnect without going through the
+  // pairing wizard again. Optional because rows from earlier installs might
+  // not have them yet — we treat them as missing-data and fall back to paste.
+  pairingId?: string;
+  sharedKeyB64?: string;
+  lastConnectedAt?: string;
 }
 
 export interface AuditLogRow {
@@ -96,6 +103,12 @@ export class PrivShareDb extends Dexie {
       settlements: 'id, groupId, date, deletedAt',
       peers: 'fingerprint',
       diagnostics: '++id, ts',
+    });
+    // v2 added pairingId + sharedKeyB64 + lastConnectedAt to peers. The schema
+    // string is unchanged because we only index by fingerprint; Dexie just
+    // needs to know the version bumped so old data passes through.
+    this.version(2).stores({
+      peers: 'fingerprint',
     });
   }
 }

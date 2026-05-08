@@ -17,6 +17,8 @@ import { InstallPrompt } from './InstallPrompt';
 import { installConsoleCapture } from '../core/diagnostics/log';
 import { ErrorBoundary } from './ErrorBoundary';
 import { SyncIndicator } from './SyncIndicator';
+import { listAllReconnectablePeers, reconnectWithPeer } from '../core/sync/reconnect';
+import { listSessions } from '../core/sync/peer-session';
 
 type Modal = null | 'pair' | 'trash' | 'diagnostics';
 
@@ -38,6 +40,37 @@ export default function App() {
   useEffect(() => {
     if (identity) void bootstrapGroups();
   }, [identity, bootstrapGroups]);
+
+  // Auto-reconnect on network-back. When the OS reports we have a network
+  // again, walk the stored peers and attempt one reconnect each. The relay
+  // (if enabled) does the SDP exchange; if it's disabled the helper rejects
+  // with 'relay-disabled' and we leave the user to tap Reconnect manually.
+  useEffect(() => {
+    if (!identity) return;
+    const tryAll = async () => {
+      const peers = await listAllReconnectablePeers();
+      const live = new Set(listSessions().map((s) => s.groupId));
+      for (const p of peers) {
+        for (const groupId of p.sharedGroupIds) {
+          if (live.has(groupId)) continue;
+          try {
+            const attempt = await reconnectWithPeer(identity, p, groupId, { timeoutMs: 15_000 });
+            await attempt.done;
+          } catch {
+            /* silent — we don't want noise on every WiFi blip */
+          }
+        }
+      }
+    };
+    const onOnline = () => {
+      void tryAll();
+    };
+    window.addEventListener('online', onOnline);
+    // Try once on mount in case we were already online when the listener
+    // attached (e.g. after restore-first onboarding loaded peers).
+    void tryAll();
+    return () => window.removeEventListener('online', onOnline);
+  }, [identity]);
 
   if (!ready) {
     return (

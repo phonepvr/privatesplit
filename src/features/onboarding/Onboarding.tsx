@@ -1,13 +1,45 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '../../ui/components/Button';
 import { Input } from '../../ui/components/Input';
 import { useSession } from '../../stores/session-store';
+import { importDeviceBackupFile } from '../export-import/device-backup';
+import { PassphraseModal } from '../../ui/components/PassphraseModal';
+
+type Step = 'intro' | 'choose' | 'name';
 
 export function Onboarding() {
   const onboard = useSession((s) => s.onboard);
-  const [step, setStep] = useState<'intro' | 'name'>('intro');
+  const loadSession = useSession((s) => s.load);
+  const [step, setStep] = useState<Step>('intro');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [restoreText, setRestoreText] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  async function handleRestoreFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setRestoreError(null);
+    const text = await f.text();
+    setRestoreText(text);
+    if (fileInput.current) fileInput.current.value = '';
+  }
+
+  async function applyRestore(passphrase: string) {
+    if (!restoreText) return;
+    const result = await importDeviceBackupFile(restoreText, passphrase);
+    if (!result.ok) {
+      throw new Error(result.reason ?? 'Restore failed.');
+    }
+    if (!result.identityAdopted) {
+      throw new Error(
+        'Backup did not contain an identity (legacy file). Please choose "Start fresh" and import groups from Profile after onboarding.'
+      );
+    }
+    setRestoreText(null);
+    await loadSession();
+  }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col px-6 pb-12 pt-10">
@@ -21,16 +53,38 @@ export function Onboarding() {
             calls after install.
           </p>
           <p>
-            When you and your partner are on the same WiFi, the two phones can sync directly via a
-            QR-code pairing — without any third party in the middle.
+            When you and your partner are on the same WiFi, the two phones sync directly. Pair once
+            and reconnects after that are automatic.
           </p>
-          <p>
-            Until then, this device is your ledger. You can export a backup file at any time from
-            Settings.
-          </p>
-          <Button fullWidth onClick={() => setStep('name')}>
+          <p>Already used PrivShare? Bring your old data with you.</p>
+          <Button fullWidth onClick={() => setStep('choose')}>
             Continue
           </Button>
+        </section>
+      )}
+
+      {step === 'choose' && (
+        <section className="mt-8 space-y-3">
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".privshare-device,application/json"
+            hidden
+            onChange={handleRestoreFile}
+          />
+          <Button fullWidth onClick={() => fileInput.current?.click()}>
+            I have a backup file
+          </Button>
+          <Button variant="secondary" fullWidth onClick={() => setStep('name')}>
+            Start fresh
+          </Button>
+          {restoreError && (
+            <p className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{restoreError}</p>
+          )}
+          <p className="text-xs text-slate-500">
+            Importing a backup keeps your old fingerprint, paired devices, and all groups so you
+            don&apos;t end up with two profiles for one person.
+          </p>
         </section>
       )}
 
@@ -60,11 +114,34 @@ export function Onboarding() {
           <Button type="submit" fullWidth disabled={!name.trim() || busy}>
             {busy ? 'Setting up…' : 'Get started'}
           </Button>
+          <Button type="button" variant="ghost" fullWidth onClick={() => setStep('choose')}>
+            Back
+          </Button>
           <p className="text-xs text-slate-500">
             This name is stored only on this device. You can change it later.
           </p>
         </form>
       )}
+
+      <PassphraseModal
+        open={restoreText !== null}
+        mode="import"
+        title="Decrypt your backup"
+        description="Enter the passphrase you used when you exported this backup."
+        onConfirm={async (p) => {
+          setRestoreError(null);
+          try {
+            await applyRestore(p);
+          } catch (err) {
+            setRestoreError(String((err as Error).message ?? err));
+            throw err;
+          }
+        }}
+        onClose={() => {
+          setRestoreText(null);
+          setRestoreError(null);
+        }}
+      />
     </main>
   );
 }

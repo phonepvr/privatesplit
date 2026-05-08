@@ -11,16 +11,23 @@ const ROWS: Row[] = [
   },
   {
     status: 'protected',
-    label: 'The app makes no external network calls. The service worker blocks them.',
+    label:
+      'Sync between paired phones runs directly over WebRTC (DTLS-encrypted). Expense data never touches a server.',
   },
   {
     status: 'protected',
-    label: 'Sync between paired phones happens directly over WebRTC (DTLS-encrypted). No servers.',
+    label:
+      'After a WiFi drop, reconnect happens via a signaling relay that sees only a random pairing token and AES-encrypted handshake blobs — never names, amounts, or group data.',
   },
   {
     status: 'caveat',
     label:
       'Pairing codes contain the group’s name and currency in plaintext. Share them privately.',
+  },
+  {
+    status: 'caveat',
+    label:
+      'You can disable the signaling relay or change its URL in Sync settings. With it off, reconnect requires a manual paste each time.',
   },
   { status: 'deferred', label: 'The local database is not yet encrypted at rest. Coming in v2.' },
 ];

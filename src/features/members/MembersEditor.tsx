@@ -55,6 +55,18 @@ export function MembersEditor({ open, groupId, members, onClose }: Props) {
                   className={`flex-1 text-sm ${m.removedAt ? 'text-slate-400 line-through' : 'text-slate-900'}`}
                 >
                   {m.name}
+                  {m.claimedByFingerprint ? (
+                    <span className="ml-2 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700">
+                      ✓ Paired
+                    </span>
+                  ) : (
+                    <span
+                      className="ml-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500"
+                      title="Local placeholder. Pair this person's device to sync with them."
+                    >
+                      Local only
+                    </span>
+                  )}
                 </span>
                 {!m.removedAt && (
                   <>
@@ -94,7 +106,7 @@ export function MembersEditor({ open, groupId, members, onClose }: Props) {
         }}
       >
         <Input
-          placeholder="Add member"
+          placeholder="Add a local placeholder…"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           className="flex-1"
@@ -103,6 +115,10 @@ export function MembersEditor({ open, groupId, members, onClose }: Props) {
           Add
         </Button>
       </form>
+      <p className="mt-2 text-[11px] text-slate-500">
+        Tip: pairing your partner&apos;s phone (Profile → Pair a device) makes them a real synced
+        member. A local placeholder only exists on this device until you pair.
+      </p>
       <div className="mt-4 text-right">
         <Button variant="ghost" onClick={onClose}>
           Done

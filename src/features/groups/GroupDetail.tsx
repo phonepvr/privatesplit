@@ -17,6 +17,7 @@ import { formatMinor } from '../../core/money/format';
 import { exportGroupCsv, downloadCsv } from '../export-import/csv';
 import { exportGroupAsBlob } from '../export-import/privshare';
 import { SyncPill } from '../pairing/SyncPill';
+import { PassphraseModal } from '../../ui/components/PassphraseModal';
 import type { ExpenseCacheRow } from '../../core/storage/db';
 
 interface Props {
@@ -48,6 +49,7 @@ export function GroupDetail({ groupId, onBack }: Props) {
   const [showSettle, setShowSettle] = useState(false);
   const [editing, setEditing] = useState<ExpenseCacheRow | null>(null);
   const [showMenu, setShowMenu] = useState(false);
+  const [showGroupExport, setShowGroupExport] = useState(false);
 
   // Ensure observers/subscriptions are attached even if the user navigates
   // here before bootstrap's liveQuery has caught up to a freshly-created group.
@@ -130,15 +132,10 @@ export function GroupDetail({ groupId, onBack }: Props) {
               </Button>
               <Button
                 variant="secondary"
-                onClick={async () => {
+                onClick={() => {
                   if (!identity) return;
-                  const blob = await exportGroupAsBlob(groupId, identity);
-                  const a = document.createElement('a');
-                  a.href = URL.createObjectURL(blob);
-                  a.download = `${group.name.replace(/\s+/g, '-')}.privshare`;
-                  a.click();
-                  URL.revokeObjectURL(a.href);
                   setShowMenu(false);
+                  setShowGroupExport(true);
                 }}
               >
                 Export .privshare
@@ -195,6 +192,7 @@ export function GroupDetail({ groupId, onBack }: Props) {
               setEditing(null);
               setShowAdd(true);
             }}
+            disabled={members.filter((m) => !m.removedAt).length === 0}
           >
             + Add expense
           </Button>
@@ -322,6 +320,23 @@ export function GroupDetail({ groupId, onBack }: Props) {
         groupId={groupId}
         members={members}
         onClose={() => setShowMembers(false)}
+      />
+      <PassphraseModal
+        open={showGroupExport}
+        mode="export"
+        title={`Encrypt "${group.name}" export`}
+        description="Anyone restoring this file will need this passphrase."
+        onConfirm={async (passphrase) => {
+          if (!identity) return;
+          const blob = await exportGroupAsBlob(groupId, identity, passphrase);
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `${group.name.replace(/\s+/g, '-')}.privshare`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+          setShowGroupExport(false);
+        }}
+        onClose={() => setShowGroupExport(false)}
       />
     </div>
   );

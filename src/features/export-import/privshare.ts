@@ -10,6 +10,12 @@ import {
   signBytes,
   verifyBytes,
 } from '../../core/crypto/keys';
+import {
+  decryptJson,
+  encryptJson,
+  isEncryptedEnvelope,
+  type EncryptedEnvelope,
+} from '../../core/crypto/passphrase';
 import type { LoadedIdentity } from '../../core/storage/identity';
 
 export const PRIVSHARE_FORMAT = 'privshare';
@@ -29,7 +35,11 @@ export interface PrivShareFile {
   signatureB64: string;
 }
 
-export async function exportGroupAsBlob(groupId: string, identity: LoadedIdentity): Promise<Blob> {
+export async function exportGroupAsBlob(
+  groupId: string,
+  identity: LoadedIdentity,
+  passphrase: string
+): Promise<Blob> {
   const handle = getGroupDoc(groupId);
   await handle.ready;
   const update = Y.encodeStateAsUpdate(handle.doc);
@@ -52,7 +62,8 @@ export async function exportGroupAsBlob(groupId: string, identity: LoadedIdentit
     payloadSha256B64: bytesToBase64(sha),
     signatureB64: bytesToBase64(sig),
   };
-  return new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' });
+  const envelope = await encryptJson(file, passphrase, PRIVSHARE_FORMAT);
+  return new Blob([JSON.stringify(envelope, null, 2)], { type: 'application/json' });
 }
 
 export interface ImportResult {
@@ -66,13 +77,42 @@ export interface ImportResult {
 
 export async function importPrivShareFile(
   fileText: string,
-  options: { mode: 'new' | 'merge'; targetGroupId?: string } = { mode: 'new' }
+  options: {
+    mode: 'new' | 'merge';
+    targetGroupId?: string;
+    passphrase?: string;
+  } = { mode: 'new' }
 ): Promise<ImportResult> {
-  let parsed: PrivShareFile;
+  let raw: unknown;
   try {
-    parsed = JSON.parse(fileText);
+    raw = JSON.parse(fileText);
   } catch {
     return { ok: false, groupId: '', groupName: '', signatureValid: false, reason: 'Invalid JSON' };
+  }
+  let parsed: PrivShareFile;
+  if (isEncryptedEnvelope(raw)) {
+    if (!options.passphrase) {
+      return {
+        ok: false,
+        groupId: '',
+        groupName: '',
+        signatureValid: false,
+        reason: 'This backup is encrypted. Provide the passphrase.',
+      };
+    }
+    try {
+      parsed = await decryptJson<PrivShareFile>(raw as EncryptedEnvelope, options.passphrase);
+    } catch (err) {
+      return {
+        ok: false,
+        groupId: '',
+        groupName: '',
+        signatureValid: false,
+        reason: String((err as Error).message ?? err),
+      };
+    }
+  } else {
+    parsed = raw as PrivShareFile;
   }
   if (parsed.format !== PRIVSHARE_FORMAT || parsed.v !== PRIVSHARE_VERSION) {
     return {

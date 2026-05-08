@@ -7,7 +7,10 @@ import { createAnswerSession, createOfferSession } from '../../core/pairing/hand
 import { attachSyncToChannel } from '../../core/sync/transport';
 import { newId } from '../../core/ids/ulid';
 import { getGroupDoc } from '../../core/crdt/group-doc';
+import { claimOrInsertMember } from '../../core/crdt/operations';
 import { ConnectedPanel } from './SyncPill';
+
+const COLOR_SEED = ['#0ea5e9', '#f97316', '#10b981', '#a855f7', '#ef4444'];
 
 interface Props {
   onBack: () => void;
@@ -68,6 +71,16 @@ export function PairScreen({ onBack }: Props) {
         setStatus('Connected. Syncing…');
         setConnectedGroupId(groupId);
         setMode('connected');
+        // Make sure the host's own member entry has a fingerprint claim.
+        try {
+          claimOrInsertMember(groupId, {
+            displayName: identity.displayName,
+            fingerprint: identity.fingerprint,
+            color: COLOR_SEED[0]!,
+          });
+        } catch (err) {
+          console.error('[PrivShare] Host self-claim failed', err);
+        }
       });
       session.channel.addEventListener('close', () => setStatus('Disconnected.'));
     } catch (err) {
@@ -141,6 +154,21 @@ export function PairScreen({ onBack }: Props) {
           setStatus('Connected. Syncing…');
           setConnectedGroupId(targetGroup);
           setMode('connected');
+          // After Yjs has had a chance to apply the host's diff (state-vector
+          // exchange happens on open), claim or insert our member entry. The
+          // small delay is just to let the first `update` frame land first;
+          // the operation is idempotent regardless.
+          setTimeout(() => {
+            try {
+              claimOrInsertMember(targetGroup, {
+                displayName: identity.displayName,
+                fingerprint: identity.fingerprint,
+                color: COLOR_SEED[1]!,
+              });
+            } catch (err) {
+              console.error('[PrivShare] Joiner claim failed', err);
+            }
+          }, 600);
         });
       });
     } catch (err) {

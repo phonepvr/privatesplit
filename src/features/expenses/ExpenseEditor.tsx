@@ -39,7 +39,8 @@ export function ExpenseEditor({ open, groupId, currency, members, initial, onClo
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally re-runs only on open/initial.id
+  const activeMemberIdsKey = activeMembers.map((m) => m.id).join(',');
+
   useEffect(() => {
     if (!open) return;
     if (initial) {
@@ -64,14 +65,28 @@ export function ExpenseEditor({ open, groupId, currency, members, initial, onClo
       setDate(new Date().toISOString().slice(0, 10));
       setCategory('Other');
       setNotes('');
-      setPaidBy(activeMembers[0]?.id ?? '');
-      setParticipants(new Set(activeMembers.map((m) => m.id)));
+      setPaidBy((prev) => {
+        // Keep the existing pick if it's still a valid member; otherwise
+        // pick the first active member (or empty if there are none).
+        if (prev && activeMembers.some((m) => m.id === prev)) return prev;
+        return activeMembers[0]?.id ?? '';
+      });
+      setParticipants((prev) => {
+        const valid = new Set([...prev].filter((id) => activeMembers.some((m) => m.id === id)));
+        if (valid.size === 0) return new Set(activeMembers.map((m) => m.id));
+        // If new members appeared, include them by default for a freshly-opened modal.
+        for (const m of activeMembers) valid.add(m.id);
+        return valid;
+      });
       setSplitType('equal');
       setExactInputs({});
     }
     setError(null);
+    // Re-run when the modal opens, the editing target changes, or the
+    // available member set changes (this is the fix for the cold-open race
+    // where members loaded after the modal opened).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initial?.id]);
+  }, [open, initial?.id, activeMemberIdsKey]);
 
   const amountMinor = useMemo(
     () => parseMajorToMinor(amountStr, currency) ?? 0,
@@ -122,8 +137,13 @@ export function ExpenseEditor({ open, groupId, currency, members, initial, onClo
       setError('Pick at least one participant');
       return;
     }
-    if (!paidBy || !participants.has(paidBy) === false) {
-      // payer can be in or out of participants
+    let effectivePayer = paidBy;
+    if (!effectivePayer && activeMembers.length > 0) {
+      effectivePayer = activeMembers[0]!.id;
+    }
+    if (!effectivePayer) {
+      setError('Add at least one member to record an expense.');
+      return;
     }
     const trimmedNotes = notes.trim();
     const baseInput: Omit<
@@ -134,7 +154,7 @@ export function ExpenseEditor({ open, groupId, currency, members, initial, onClo
       amountMinor: parsed,
       date,
       category,
-      paidByMemberId: paidBy,
+      paidByMemberId: effectivePayer,
       participants: [...participants],
       createdByFingerprint: identity.fingerprint,
     };
@@ -222,17 +242,24 @@ export function ExpenseEditor({ open, groupId, currency, members, initial, onClo
         </div>
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-slate-700">Paid by</span>
-          <select
-            value={paidBy}
-            onChange={(e) => setPaidBy(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base"
-          >
-            {activeMembers.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
+          {activeMembers.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+              No members in this group yet. Add a member or pair a device first.
+            </p>
+          ) : (
+            <select
+              value={paidBy}
+              onChange={(e) => setPaidBy(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base"
+            >
+              {activeMembers.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                  {m.claimedByFingerprint ? ' (paired)' : ' (local only)'}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
         <div>
           <span className="mb-1 block text-sm font-medium text-slate-700">Split</span>

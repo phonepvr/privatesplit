@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useGroups } from '../../stores/groups-store';
 import { useSession } from '../../stores/session-store';
 import { exportDeviceAsBlob } from '../export-import/device-backup';
+import { PassphraseModal } from '../../ui/components/PassphraseModal';
 
 const LAST_KEY = 'privshare:lastBackupAt';
 const REMIND_KEY = 'privshare:backupReminderAt';
@@ -16,6 +17,7 @@ export function BackupPrompt({ onOpenProfile }: Props) {
   const groupCount = useGroups((s) => s.groups.length);
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [askPassphrase, setAskPassphrase] = useState(false);
 
   useEffect(() => {
     if (!identity || groupCount === 0) {
@@ -60,30 +62,38 @@ export function BackupPrompt({ onOpenProfile }: Props) {
           Open Backup screen
         </button>
         <button
-          onClick={async () => {
-            if (busy) return;
-            setBusy(true);
-            try {
-              const blob = await exportDeviceAsBlob(identity);
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              const stamp = new Date().toISOString().slice(0, 10);
-              a.download = `privshare-${identity.displayName.replace(/\s+/g, '-')}-${stamp}.privshare-device`;
-              a.click();
-              URL.revokeObjectURL(url);
-              localStorage.setItem(LAST_KEY, String(Date.now()));
-              setVisible(false);
-            } finally {
-              setBusy(false);
-            }
-          }}
+          onClick={() => setAskPassphrase(true)}
           className="rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white"
           disabled={busy}
         >
           {busy ? 'Saving…' : 'Save backup now'}
         </button>
       </div>
+      <PassphraseModal
+        open={askPassphrase}
+        mode="export"
+        title="Encrypt your backup"
+        description="Choose a passphrase. You'll need it to restore."
+        onConfirm={async (passphrase) => {
+          setBusy(true);
+          try {
+            const blob = await exportDeviceAsBlob(identity, passphrase);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const stamp = new Date().toISOString().slice(0, 10);
+            a.download = `privshare-${identity.displayName.replace(/\s+/g, '-')}-${stamp}.privshare-device`;
+            a.click();
+            URL.revokeObjectURL(url);
+            localStorage.setItem(LAST_KEY, String(Date.now()));
+            setAskPassphrase(false);
+            setVisible(false);
+          } finally {
+            setBusy(false);
+          }
+        }}
+        onClose={() => setAskPassphrase(false)}
+      />
     </div>
   );
 }

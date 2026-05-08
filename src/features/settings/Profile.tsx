@@ -9,6 +9,7 @@ import { clearIdentityCache } from '../../core/storage/identity';
 import { importPrivShareFile } from '../export-import/privshare';
 import { exportDeviceAsBlob, importDeviceBackupFile } from '../export-import/device-backup';
 import { PeersList } from '../pairing/PeersList';
+import { PassphraseModal } from '../../ui/components/PassphraseModal';
 
 interface Props {
   onOpenPair: () => void;
@@ -26,30 +27,41 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
   const deviceFileInput = useRef<HTMLInputElement>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [exportPassphraseOpen, setExportPassphraseOpen] = useState(false);
+  const [importPassphrase, setImportPassphrase] = useState<{
+    target: 'group' | 'device';
+    text: string;
+  } | null>(null);
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
-    setImportMsg('Importing…');
     const text = await f.text();
-    const result = await importPrivShareFile(text, { mode: 'new' });
+    setImportPassphrase({ target: 'group', text });
+    if (fileInput.current) fileInput.current.value = '';
+  }
+
+  async function applyGroupImport(passphrase: string) {
+    if (!importPassphrase) return;
+    setImportMsg('Importing…');
+    const result = await importPrivShareFile(importPassphrase.text, { mode: 'new', passphrase });
     if (result.ok) {
       const note = result.signatureValid
         ? 'signature valid'
         : 'signature unknown — proceed with caution';
       setImportMsg(`Imported "${result.groupName}" (${note}).`);
+      setImportPassphrase(null);
     } else {
-      setImportMsg(`Import failed: ${result.reason ?? 'unknown'}.`);
+      throw new Error(result.reason ?? 'unknown');
     }
-    if (fileInput.current) fileInput.current.value = '';
   }
 
-  async function saveDeviceBackup() {
+  async function saveDeviceBackup(passphrase: string) {
     if (!identity || busy) return;
     setBusy(true);
-    setImportMsg('Building backup…');
+    setImportMsg('Encrypting backup…');
     try {
-      const blob = await exportDeviceAsBlob(identity);
+      const blob = await exportDeviceAsBlob(identity, passphrase);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -58,9 +70,8 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
       a.click();
       URL.revokeObjectURL(url);
       localStorage.setItem('privshare:lastBackupAt', String(Date.now()));
-      setImportMsg(`Saved backup of ${groups.length} group(s).`);
-    } catch (err) {
-      setImportMsg(`Backup failed: ${String((err as Error).message ?? err)}`);
+      setImportMsg(`Saved encrypted backup of ${groups.length} group(s).`);
+      setExportPassphraseOpen(false);
     } finally {
       setBusy(false);
     }
@@ -69,17 +80,23 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
   async function onDeviceFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
-    setImportMsg('Restoring device backup…');
     const text = await f.text();
-    const result = await importDeviceBackupFile(text);
+    setImportPassphrase({ target: 'device', text });
+    if (deviceFileInput.current) deviceFileInput.current.value = '';
+  }
+
+  async function applyDeviceImport(passphrase: string) {
+    if (!importPassphrase) return;
+    setImportMsg('Restoring device backup…');
+    const result = await importDeviceBackupFile(importPassphrase.text, passphrase);
     if (result.ok) {
       setImportMsg(
         `Restored ${result.importedGroupCount} group(s) from ${result.exportedByDisplayName ?? 'backup'}.`
       );
+      setImportPassphrase(null);
     } else {
-      setImportMsg(`Restore failed: ${result.reason ?? 'unknown'}.`);
+      throw new Error(result.reason ?? 'unknown');
     }
-    if (deviceFileInput.current) deviceFileInput.current.value = '';
   }
 
   async function factoryReset() {
@@ -154,8 +171,8 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-semibold">Backup &amp; restore</h3>
           <p className="mt-1 text-xs text-slate-500">
-            Your data is auto-saved on this device. Export a single signed backup file you can keep
-            anywhere — restore it on a new device or after a factory reset.
+            Backups are encrypted on this device with a passphrase you choose. You&apos;ll need the
+            same passphrase to restore. Without it, the file is unreadable — even to us.
           </p>
           <input
             ref={deviceFileInput}
@@ -172,7 +189,11 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
             onChange={onFile}
           />
           <div className="mt-3 grid gap-2">
-            <Button onClick={saveDeviceBackup} disabled={busy || !identity} fullWidth>
+            <Button
+              onClick={() => setExportPassphraseOpen(true)}
+              disabled={busy || !identity}
+              fullWidth
+            >
               {busy ? 'Saving…' : 'Save device backup'}
             </Button>
             <Button variant="secondary" onClick={() => deviceFileInput.current?.click()} fullWidth>
@@ -185,6 +206,26 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
           {importMsg && <p className="mt-2 text-xs text-slate-600">{importMsg}</p>}
           <p className="mt-2 text-xs text-slate-400">Local groups: {groups.length}</p>
         </section>
+
+        <PassphraseModal
+          open={exportPassphraseOpen}
+          mode="export"
+          title="Encrypt your backup"
+          description="Pick a strong passphrase. You will need it to restore."
+          onConfirm={(p) => saveDeviceBackup(p)}
+          onClose={() => setExportPassphraseOpen(false)}
+        />
+        <PassphraseModal
+          open={importPassphrase !== null}
+          mode="import"
+          title="Decrypt the backup"
+          description="Enter the passphrase used when this file was exported."
+          onConfirm={async (p) => {
+            if (importPassphrase?.target === 'device') await applyDeviceImport(p);
+            else await applyGroupImport(p);
+          }}
+          onClose={() => setImportPassphrase(null)}
+        />
 
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-semibold">Other</h3>

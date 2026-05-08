@@ -2,6 +2,12 @@ import * as Y from 'yjs';
 import { db } from '../../core/storage/db';
 import { getGroupDoc } from '../../core/crdt/group-doc';
 import { base64ToBytes, bytesToBase64, exportPublicKey, signBytes } from '../../core/crypto/keys';
+import {
+  decryptJson,
+  encryptJson,
+  isEncryptedEnvelope,
+  type EncryptedEnvelope,
+} from '../../core/crypto/passphrase';
 import type { LoadedIdentity } from '../../core/storage/identity';
 import { useGroups } from '../../stores/groups-store';
 
@@ -36,7 +42,10 @@ function concatStrings(parts: string[]): Uint8Array {
   return new TextEncoder().encode(text);
 }
 
-export async function exportDeviceAsBlob(identity: LoadedIdentity): Promise<Blob> {
+export async function exportDeviceAsBlob(
+  identity: LoadedIdentity,
+  passphrase: string
+): Promise<Blob> {
   const groups = await db().groups.toArray();
   const live = groups.filter((g) => !g.deletedAt);
 
@@ -82,7 +91,8 @@ export async function exportDeviceAsBlob(identity: LoadedIdentity): Promise<Blob
     bundleSha256B64: bytesToBase64(sha),
     signatureB64: bytesToBase64(sig),
   };
-  return new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' });
+  const envelope = await encryptJson(file, passphrase, DEVICE_BACKUP_FORMAT);
+  return new Blob([JSON.stringify(envelope, null, 2)], { type: 'application/json' });
 }
 
 export interface DeviceImportResult {
@@ -93,12 +103,36 @@ export interface DeviceImportResult {
   exportedByFingerprint?: string;
 }
 
-export async function importDeviceBackupFile(text: string): Promise<DeviceImportResult> {
-  let parsed: DeviceBackupFile;
+export async function importDeviceBackupFile(
+  text: string,
+  passphrase?: string
+): Promise<DeviceImportResult> {
+  let raw: unknown;
   try {
-    parsed = JSON.parse(text);
+    raw = JSON.parse(text);
   } catch {
     return { ok: false, reason: 'Invalid JSON', importedGroupCount: 0 };
+  }
+  let parsed: DeviceBackupFile;
+  if (isEncryptedEnvelope(raw)) {
+    if (!passphrase) {
+      return {
+        ok: false,
+        reason: 'This backup is encrypted. Provide the passphrase.',
+        importedGroupCount: 0,
+      };
+    }
+    try {
+      parsed = await decryptJson<DeviceBackupFile>(raw as EncryptedEnvelope, passphrase);
+    } catch (err) {
+      return {
+        ok: false,
+        reason: String((err as Error).message ?? err),
+        importedGroupCount: 0,
+      };
+    }
+  } else {
+    parsed = raw as DeviceBackupFile;
   }
   if (parsed.format !== DEVICE_BACKUP_FORMAT || parsed.v !== DEVICE_BACKUP_VERSION) {
     return {

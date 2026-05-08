@@ -60,6 +60,52 @@ export function addMember(
   return id;
 }
 
+/**
+ * Reconcile a joining device with the group's membership. If an unclaimed
+ * member entry exists, claim it (set fingerprint + name). Otherwise insert a
+ * new member with the joiner's name + fingerprint. Idempotent: calling twice
+ * with the same fingerprint is a no-op after the first call.
+ */
+export function claimOrInsertMember(
+  groupId: string,
+  args: { displayName: string; fingerprint: string; color: string }
+): { claimedExisting: boolean; memberId: string } {
+  const handle = getGroupDoc(groupId);
+  let result: { claimedExisting: boolean; memberId: string } | null = null;
+  handle.doc.transact(() => {
+    // Already claimed by this fingerprint?
+    for (let i = 0; i < handle.members.length; i += 1) {
+      const m = handle.members.get(i);
+      if (m.get('claimedByFingerprint') === args.fingerprint) {
+        result = { claimedExisting: true, memberId: m.get('id') as string };
+        return;
+      }
+    }
+    // Claim the first unclaimed, non-removed entry.
+    for (let i = 0; i < handle.members.length; i += 1) {
+      const m = handle.members.get(i);
+      if (m.get('claimedByFingerprint') == null && m.get('removedAt') == null) {
+        m.set('claimedByFingerprint', args.fingerprint);
+        m.set('name', args.displayName);
+        result = { claimedExisting: true, memberId: m.get('id') as string };
+        return;
+      }
+    }
+    // No placeholder available: insert a fresh member.
+    const id = newId();
+    const m = new Y.Map<unknown>();
+    m.set('id', id);
+    m.set('name', args.displayName);
+    m.set('color', args.color);
+    m.set('claimedByFingerprint', args.fingerprint);
+    m.set('createdAt', new Date().toISOString());
+    handle.members.push([m]);
+    result = { claimedExisting: false, memberId: id };
+  });
+  if (!result) throw new Error('claimOrInsertMember: transaction did not produce a result');
+  return result;
+}
+
 export function updateMember(
   groupId: string,
   memberId: string,

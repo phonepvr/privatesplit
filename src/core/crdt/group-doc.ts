@@ -15,15 +15,29 @@ export interface GroupDocHandle {
   ready: Promise<void>;
 }
 
+function indexedDBAvailable(): boolean {
+  return (
+    typeof globalThis !== 'undefined' &&
+    typeof (globalThis as { indexedDB?: unknown }).indexedDB !== 'undefined'
+  );
+}
+
 export function getGroupDoc(groupId: string): GroupDocHandle {
   let entry = docs.get(groupId);
   if (!entry) {
     const doc = new Y.Doc({ guid: `group:${groupId}` });
-    const persistence = new IndexeddbPersistence(`privshare-group-${groupId}`, doc);
-    const ready = new Promise<void>((resolve) => {
-      persistence.once('synced', () => resolve());
-    });
-    entry = { doc, persistence, ready };
+    let persistence: IndexeddbPersistence | null = null;
+    let ready: Promise<void>;
+    if (indexedDBAvailable()) {
+      persistence = new IndexeddbPersistence(`privshare-group-${groupId}`, doc);
+      ready = new Promise<void>((resolve) => {
+        persistence!.once('synced', () => resolve());
+      });
+    } else {
+      // Test environment without IndexedDB; persistence is a no-op.
+      ready = Promise.resolve();
+    }
+    entry = { doc, persistence: persistence as IndexeddbPersistence, ready };
     docs.set(groupId, entry);
   }
   const doc = entry.doc;
@@ -40,7 +54,7 @@ export function getGroupDoc(groupId: string): GroupDocHandle {
 export async function destroyGroupDoc(groupId: string): Promise<void> {
   const entry = docs.get(groupId);
   if (!entry) return;
-  await entry.persistence.destroy();
+  if (entry.persistence) await entry.persistence.destroy();
   entry.doc.destroy();
   docs.delete(groupId);
 }

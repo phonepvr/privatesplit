@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../ui/components/Button';
 import { Input } from '../../ui/components/Input';
 import { Modal } from '../../ui/components/Modal';
@@ -38,6 +38,18 @@ export function ExpenseEditor({ open, groupId, currency, members, initial, onClo
   const [exactInputs, setExactInputs] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const descriptionRef = useRef<HTMLInputElement | null>(null);
+
+  // When the modal opens, focus the Description and scroll it into view so the
+  // soft keyboard (Android Chrome) doesn't push it above the visible area.
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => {
+      descriptionRef.current?.focus();
+      descriptionRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 50);
+    return () => window.clearTimeout(id);
+  }, [open]);
 
   const activeMemberIdsKey = activeMembers.map((m) => m.id).join(',');
 
@@ -204,10 +216,11 @@ export function ExpenseEditor({ open, groupId, currency, members, initial, onClo
     <Modal open={open} onClose={onClose} title={initial ? 'Edit expense' : 'Add expense'}>
       <form className="space-y-3" onSubmit={onSubmit}>
         <Input
+          ref={descriptionRef}
           label="Description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          autoFocus
+          onFocus={(e) => e.currentTarget.scrollIntoView({ block: 'center', behavior: 'smooth' })}
           maxLength={120}
           required
         />
@@ -216,6 +229,7 @@ export function ExpenseEditor({ open, groupId, currency, members, initial, onClo
           inputMode="decimal"
           value={amountStr}
           onChange={(e) => setAmountStr(e.target.value)}
+          onFocus={(e) => e.currentTarget.scrollIntoView({ block: 'center', behavior: 'smooth' })}
           placeholder="0.00"
           required
         />

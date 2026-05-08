@@ -253,6 +253,9 @@ export function PairScreen({ onBack }: Props) {
           <>
             <div className="rounded-xl border border-slate-200 bg-white p-4">
               <h3 className="text-sm font-semibold">Step 1 — Send this offer to your partner</h3>
+              <p className="mt-1 text-[11px] text-amber-700">
+                Share via a private channel. The code contains the group&apos;s name and currency.
+              </p>
               {offerPayload ? (
                 <>
                   <textarea

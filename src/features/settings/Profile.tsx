@@ -10,6 +10,7 @@ import { importPrivShareFile } from '../export-import/privshare';
 import { exportDeviceAsBlob, importDeviceBackupFile } from '../export-import/device-backup';
 import { PeersList } from '../pairing/PeersList';
 import { PassphraseModal } from '../../ui/components/PassphraseModal';
+import { PrivacySummary } from './PrivacySummary';
 
 interface Props {
   onOpenPair: () => void;
@@ -226,6 +227,8 @@ export function Profile({ onOpenPair, onOpenDiagnostics, onOpenTrash }: Props) {
           }}
           onClose={() => setImportPassphrase(null)}
         />
+
+        <PrivacySummary />
 
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-semibold">Other</h3>
